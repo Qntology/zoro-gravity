@@ -35,10 +35,6 @@ if errorlevel 1 (
     echo [run] cargo not found. Install Rust from https://rustup.rs
     goto :failed
 )
-if not exist "..\candle-rocm-vulkan\candle-core\Cargo.toml" (
-    echo [run] ..\candle-rocm-vulkan not found. Clone the candle fork next to this folder, see Cargo.toml.
-    goto :failed
-)
 
 set "TARGET=target-%BACKEND%"
 if /i "%BACKEND%"=="vulkan" set "TARGET=target"

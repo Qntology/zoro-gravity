@@ -8,11 +8,12 @@ members = ["core", "tools/gguf-convert", "tools/model-settings"]
 resolver = "2"
 
 [patch.crates-io]
-# 포크의 candle-core · candle-nn 으로 바꿉니다. 로컬 워킹트리(GitHub 폴더의 candle-rocm-vulkan)를 씁니다.
-# 기준 커밋은 Qntology master 의 2191c7ad898d866c4db5380ea1fc13a98f435e0c 이고, 그 위에 Vulkan 셰이더 수정이 있습니다.
-# (logis-center 도 같은 방식으로 로컬 포크 경로를 주석으로 둡니다.) 포크를 GitHub 에서 받아 쓸 때는 git rev 줄로 되돌리세요.
-candle-core = { path = "../candle-rocm-vulkan/candle-core" }
-candle-nn = { path = "../candle-rocm-vulkan/candle-nn" }
+# 포크의 candle-core · candle-nn 으로 바꿉니다. GitHub 의 Qntology master 를 받습니다 (logis-center 와 같은 방식).
+# 로컬 워킹트리로 바꾸려면 git 줄을 주석 처리하고 아래 path 줄의 주석을 푸세요.
+candle-core = { git = "https://github.com/Qntology/candle-rocm-vulkan", branch = "master" }
+candle-nn = { git = "https://github.com/Qntology/candle-rocm-vulkan", branch = "master" }
+# candle-core = { path = "../candle-rocm-vulkan/candle-core" }
+# candle-nn = { path = "../candle-rocm-vulkan/candle-nn" }
 
 [profile.dev]
 incremental = true

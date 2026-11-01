@@ -30,7 +30,6 @@ find_rocm() {
 }
 
 command -v cargo > /dev/null || fail "cargo 가 없습니다. https://rustup.rs 에서 Rust 를 설치하세요."
-[ -f ../candle-rocm-vulkan/candle-core/Cargo.toml ] || fail "../candle-rocm-vulkan 이 없습니다. 이 저장소 옆에 candle 포크를 받아 두세요 (Cargo.toml 참고)."
 
 case "$BACKEND" in
     vulkan)
