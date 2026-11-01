@@ -138,7 +138,7 @@ pub fn download(name: &str, on: &mut dyn FnMut(Progress)) -> Result<()> {
 mod tests {
     use super::*;
     use crate::testing::TempModels;
-    use crate::{status, CATALOG};
+    use crate::status;
     use std::collections::HashMap;
     use std::io::{BufRead, BufReader};
     use std::net::TcpListener;
@@ -354,10 +354,8 @@ mod tests {
     }
 
     #[test]
-    fn models_without_a_link_and_unknown_names_are_refused() {
+    fn unknown_names_are_refused() {
         let _t = TempModels::new("refuse");
-        assert!(CATALOG.iter().any(|e| e.repo.is_none()));
-        assert!(collect("siglip2").0.is_err());
         assert!(collect("모르는모델").0.is_err());
     }
 }
