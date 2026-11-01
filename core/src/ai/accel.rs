@@ -74,9 +74,53 @@ pub fn select_device_with(pref: DevicePref) -> Result<Device> {
     }
 }
 
+/// 쓸 GPU 번호를 직접 정하는 환경 변수. 없으면 여유 VRAM 이 가장 많은 GPU 를 고릅니다 (Vulkan 은 0번).
+pub const GPU_ENV: &str = "ZOROGRAVITY_GPU";
+
+fn parse_gpu(s: &str) -> Result<usize> {
+    s.trim().parse().map_err(|_| anyhow!("{GPU_ENV}={s:?}: 0 이상의 GPU 번호여야 합니다"))
+}
+
+fn gpu_override() -> Result<Option<usize>> {
+    std::env::var(GPU_ENV).ok().filter(|v| !v.trim().is_empty()).map(|v| parse_gpu(&v)).transpose()
+}
+
+/// 여유 VRAM 이 가장 많은 GPU (logis-center `get_best_device_info` 와 같음). 같으면 앞 번호이고, 모두 재지 못했으면 0번입니다.
+#[cfg_attr(not(any(test, feature = "cuda", feature = "rocm")), allow(dead_code))]
+fn best_gpu(free: &[(usize, u64)]) -> usize {
+    for (id, bytes) in free {
+        eprintln!("[ZOROGRAVITY-ACCEL] GPU {id}: 여유 VRAM {:.2} GB", *bytes as f64 / 1e9);
+    }
+    let mut best = (0, 0);
+    for &(id, bytes) in free {
+        if bytes > best.1 {
+            best = (id, bytes);
+        }
+    }
+    if free.len() > 1 {
+        eprintln!("[ZOROGRAVITY-ACCEL] GPU {} 을 씁니다", best.0);
+    }
+    best.0
+}
+
 #[cfg(feature = "cuda")]
 fn open_cuda() -> Result<Option<Device>> {
-    Ok(Some(Device::new_cuda(0)?))
+    /// 살펴볼 GPU 수의 상한
+    const MAX_GPUS: usize = 8;
+    if let Some(id) = gpu_override()? {
+        return Ok(Some(Device::new_cuda(id)?));
+    }
+    // 포크의 CUDA 는 장치 수를 알려 주지 않아서 열리는 데까지 엽니다. 고르지 않은 장치는 여기서 닫힙니다.
+    let mut devices: Vec<Device> = (0..MAX_GPUS).map_while(|id| Device::new_cuda(id).ok()).collect();
+    if devices.is_empty() {
+        return Ok(Some(Device::new_cuda(0)?));
+    }
+    let free: Vec<(usize, u64)> = devices
+        .iter()
+        .enumerate()
+        .map(|(id, d)| (id, d.mem_info().ok().flatten().map_or(0, |(free, _)| free as u64)))
+        .collect();
+    Ok(Some(devices.swap_remove(best_gpu(&free))))
 }
 
 #[cfg(not(feature = "cuda"))]
@@ -95,13 +139,21 @@ const ROCM_BUFFER_CACHE_MB: &str = "1024";
 
 #[cfg(feature = "rocm")]
 fn open_rocm() -> Result<Option<Device>> {
-    if candle_rocm::device_count().unwrap_or(0) == 0 {
+    let count = candle_rocm::device_count().unwrap_or(0);
+    if count == 0 {
         return Ok(None);
     }
     if std::env::var_os(ROCM_BUFFER_CACHE_ENV).is_none() {
         std::env::set_var(ROCM_BUFFER_CACHE_ENV, ROCM_BUFFER_CACHE_MB);
     }
-    Ok(Some(Device::new_rocm(0)?))
+    let id = match gpu_override()? {
+        Some(id) => id,
+        None => {
+            let free: Vec<(usize, u64)> = (0..count).map(|id| (id, candle_rocm::mem_info(id).map_or(0, |(free, _)| free as u64))).collect();
+            best_gpu(&free)
+        }
+    };
+    Ok(Some(Device::new_rocm(id)?))
 }
 
 #[cfg(not(feature = "rocm"))]
@@ -114,7 +166,7 @@ fn open_vulkan() -> Result<Option<Device>> {
     if candle_core::vulkan_backend::device_count().unwrap_or(0) == 0 {
         return Ok(None);
     }
-    Ok(Some(Device::new_vulkan(0)?))
+    Ok(Some(Device::new_vulkan(gpu_override()?.unwrap_or(0))?))
 }
 
 #[cfg(not(feature = "vulkan"))]
@@ -188,6 +240,20 @@ mod tests {
         assert_eq!(DevicePref::parse("cpu").unwrap(), DevicePref::Cpu);
         assert_eq!(DevicePref::parse("CUDA").unwrap(), DevicePref::Cuda);
         assert!(DevicePref::parse("opencl").is_err());
+    }
+
+    #[test]
+    fn the_gpu_with_the_most_free_memory_wins() {
+        assert_eq!(best_gpu(&[(0, 2), (1, 8), (2, 4)]), 1);
+        assert_eq!(best_gpu(&[(0, 8), (1, 8)]), 0, "같으면 앞 번호입니다");
+        assert_eq!(best_gpu(&[(0, 0), (1, 0)]), 0, "재지 못했으면 0번입니다");
+        assert_eq!(best_gpu(&[]), 0);
+    }
+
+    #[test]
+    fn parses_a_gpu_number() {
+        assert_eq!(parse_gpu(" 1 ").unwrap(), 1);
+        assert!(parse_gpu("first").is_err());
     }
 
     #[test]

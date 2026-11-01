@@ -199,6 +199,7 @@ zorogravity 는 포크를 고치지 않고 올리기 전후의 장치 여유 메
 | 변수 | 기본값 | 뜻 |
 | --- | --- | --- |
 | `ZOROGRAVITY_DEVICE` | `auto` | `auto` · `cuda` · `rocm` · `vulkan` · `cpu` |
+| `ZOROGRAVITY_GPU` | 자동 | GPU 번호. 없으면 CUDA · ROCm 은 여유 VRAM 이 가장 많은 GPU, Vulkan 은 0번 (logis-center 와 같음) |
 | `ZOROGRAVITY_ACCEL_CHECK` | 켜짐 | `off` 이면 커널 자가 검증을 건너뜁니다 (진단용으로만) |
 | `CANDLE_VULKAN_NATIVE` | 자동 (독립 GPU 는 꺼짐) | `1` 이면 Vulkan 네이티브 element-wise · softmax · reduce 커널을 강제로 씁니다 |
 | `CANDLE_VULKAN_DEBUG` | 꺼짐 | `1` 이면 커널이 CPU 로 되돌아간 이유를 출력합니다 |
