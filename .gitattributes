@@ -1,0 +1,7 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# cmd.exe 는 LF 만 있는 .bat 에서 라벨을 놓칠 수 있고, 셸은 CRLF 스크립트를 실행하지 못합니다.
+*.bat     text eol=crlf
+*.sh      text eol=lf
+*.command text eol=lf
