@@ -1,0 +1,11 @@
+[package]
+name = "zorogravity-gguf"
+version = "0.1.0"
+edition = "2021"
+description = "safetensors -> GGUF 변환 (Q4_K / Q8_0, 비전 BF16) 과 양자화 정밀도 점검"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1"
+candle-core = "0.11.0"
+serde_json = "1"

@@ -1,0 +1,22 @@
+# Rust
+target/
+
+# 로컬 런타임 DLL 복사 폴더, 모델 가중치 (저장소에 올리지 않습니다)
+dlls/
+models/
+*.gguf
+*.safetensors
+
+# 실제 민원 데이터·산출 문서 (개인정보)
+data/
+out/
+
+# 에디터·OS 파일
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
+
+# ROCm · CUDA 빌드는 기본 빌드 캐시와 섞이지 않게 별도 폴더를 씁니다
+/target-rocm/
+/target-cuda/

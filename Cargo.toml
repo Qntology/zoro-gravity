@@ -1,0 +1,27 @@
+# GovGraph-ZOROGRAVITY 워크스페이스
+#
+# AI 엔진은 candle 을 쓰고, AMD GPU 연동(ROCm · Vulkan)은 Qntology 의 candle 포크를 씁니다.
+# 참고 구현: https://github.com/Qntology/logis-center (commerce/src-tauri 의 Cargo 설정 · accel 검증 로직)
+
+[workspace]
+members = ["core", "tools/gguf-convert"]
+resolver = "2"
+
+[patch.crates-io]
+# 포크의 candle-core · candle-nn 으로 바꿉니다. 로컬 워킹트리(GitHub 폴더의 candle-rocm-vulkan)를 씁니다.
+# 기준 커밋은 Qntology master 의 2191c7ad898d866c4db5380ea1fc13a98f435e0c 이고, 그 위에 Vulkan 셰이더 수정이 있습니다.
+# (logis-center 도 같은 방식으로 로컬 포크 경로를 주석으로 둡니다.) 포크를 GitHub 에서 받아 쓸 때는 git rev 줄로 되돌리세요.
+candle-core = { path = "../candle-rocm-vulkan/candle-core" }
+candle-nn = { path = "../candle-rocm-vulkan/candle-nn" }
+
+[profile.dev]
+incremental = true
+[profile.dev.package.candle-core]
+opt-level = 3
+[profile.dev.package.candle-nn]
+opt-level = 3
+[profile.dev.package.candle-rocm]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
