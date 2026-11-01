@@ -1,6 +1,11 @@
 # Rust
 target/
 
+# 앱 프론트 · Tauri 생성물
+node_modules/
+app/dist/
+app/src-tauri/gen/
+
 # 로컬 런타임 DLL 복사 폴더, 모델 가중치 (저장소에 올리지 않습니다)
 dlls/
 models/

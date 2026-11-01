@@ -40,12 +40,10 @@ impl ActiveModel {
 
 /// `model_dir/active.json` 이 가리키는 GGUF 를 열고 구조 값을 읽습니다.
 pub fn load_active(model_dir: &Path) -> Result<ActiveModel> {
-    // 앱 폴더의 모델이 없으면 여기서 내려받고 이어서 엽니다.
-    zorogravity_models::ensure_model(model_dir)?;
     let record_path = model_dir.join("active.json");
     let record: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&record_path)
-            .with_context(|| format!("선택 기록을 읽을 수 없습니다: {}", record_path.display()))?,
+            .with_context(|| format!("선택 기록을 읽을 수 없습니다: {}. 앱을 실행하면 모델을 내려받습니다", record_path.display()))?,
     )?;
     let file = record["file"]
         .as_str()

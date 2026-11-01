@@ -2,27 +2,19 @@
 name = "zorogravity-models"
 version = "0.1.0"
 edition = "2021"
-description = "GovGraph-ZOROGRAVITY 모델 폴더(AppData) · 다운로드 · 삭제와 모델 관리 화면"
+description = "zoro-gravity 모델 폴더(AppData) · 다운로드 · 삭제"
 license = "Apache-2.0"
 
 [lib]
 name = "zorogravity_models"
 path = "src/lib.rs"
 
-[[bin]]
-name = "zorogravity-models"
-path = "src/main.rs"
-required-features = ["settings"]
-
 [dependencies]
 anyhow = "1"
 dirs = "6"
-serde_json = { version = "1", optional = true }
-tiny_http = { version = "0.12", optional = true }
 ureq = { version = "3", default-features = false, features = ["rustls"], optional = true }
 
 [features]
-# 코어 엔진은 모델이 없을 때 내려받으므로 download 를 쓰고, 화면 서버(settings)는 넣지 않습니다.
-default = ["settings"]
+# 코어 엔진은 폴더 위치만 쓰고(default-features = false), 다운로드는 앱이 합니다.
+default = ["download"]
 download = ["dep:ureq"]
-settings = ["download", "dep:serde_json", "dep:tiny_http"]

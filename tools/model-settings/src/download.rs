@@ -15,8 +15,6 @@ use crate::{entry, model_dir, ModelEntry};
 const HUB: &str = "https://huggingface.co";
 /// 미러 주소를 정하는 환경 변수
 pub const MIRROR_ENV: &str = "ZOROGRAVITY_MODEL_MIRROR";
-/// `0` 이면 모델이 없어도 내려받지 않습니다 (망이 분리된 곳)
-pub const AUTO_DOWNLOAD_ENV: &str = "ZOROGRAVITY_AUTO_DOWNLOAD";
 
 const CHUNK: usize = 1 << 20;
 
@@ -127,43 +125,13 @@ fn run(entry: &'static ModelEntry, repo: &str, on: &mut dyn FnMut(Progress)) -> 
     Ok(())
 }
 
-/// 모델을 내려받습니다. 끝날 때까지 돌아오지 않으므로 화면은 별도 스레드에서 부릅니다.
+/// 모델을 내려받습니다. 끝날 때까지 돌아오지 않으므로 앱은 별도 스레드에서 부릅니다.
 pub fn download(name: &str, on: &mut dyn FnMut(Progress)) -> Result<()> {
     let entry = entry(name).ok_or_else(|| anyhow!("모르는 모델입니다: {name}"))?;
     let Some(repo) = entry.repo else {
         bail!("{name} 은 내려받을 곳이 없습니다. 직접 변환해서 {} 에 넣으세요", model_dir(name).display());
     };
     run(entry, repo, on)
-}
-
-/// 터미널에 그리는 진행률 한 줄
-fn progress_line(p: &Progress) -> String {
-    const WIDTH: usize = 30;
-    let filled = p.percent.min(100) as usize * WIDTH / 100;
-    format!("[{}{}] {:>3}% {}", "#".repeat(filled), "-".repeat(WIDTH - filled), p.percent, p.message)
-}
-
-/// 앱 폴더의 모델이 아직 없으면 그 자리에서 내려받습니다 (logis-center 는 모델을 올리다 파일이 없으면 다운로드로 이어집니다).
-/// `active.json` 을 맨 뒤에 받으므로, 이 파일이 없으면 받다 멈춘 것까지 이어서 받습니다.
-/// 내려받았으면 true 입니다. 앱 폴더 밖의 경로, 내려받을 곳이 없는 모델, `ZOROGRAVITY_AUTO_DOWNLOAD=0` 이면 아무것도 하지 않습니다.
-pub fn ensure_model(dir: &Path) -> Result<bool> {
-    let name = dir.file_name().and_then(|n| n.to_str()).unwrap_or_default();
-    let known = entry(name).is_some_and(|e| e.repo.is_some()) && dir == model_dir(name);
-    let off = std::env::var(AUTO_DOWNLOAD_ENV).is_ok_and(|v| v.trim() == "0");
-    if !known || off || dir.join("active.json").exists() {
-        return Ok(false);
-    }
-    eprintln!("[ZOROGRAVITY-MODEL] {name} 모델이 없어서 내려받습니다: {}", dir.display());
-    let mut last = String::new();
-    download(name, &mut |p| {
-        let line = progress_line(&p);
-        if line != last {
-            eprint!("\r{line:<100}");
-            last = line;
-        }
-    })?;
-    eprintln!();
-    Ok(true)
 }
 
 #[cfg(test)]
@@ -316,29 +284,6 @@ mod tests {
         mirror.add_model("gocr", 1024);
         *mirror.silent_close.lock().unwrap() = true;
         collect("gocr").0.unwrap();
-    }
-
-    #[test]
-    fn a_missing_model_is_fetched_once_and_only_in_the_app_folder() {
-        let t = TempModels::new("ensure");
-        let mirror = Mirror::start();
-        mirror.add_model("gocr", 256);
-        let dir = t.path().join("gocr");
-        assert!(!ensure_model(&std::env::temp_dir().join("gocr")).unwrap(), "앱 폴더 밖은 받지 않습니다");
-        assert!(!ensure_model(&t.path().join("siglip2")).unwrap(), "받을 곳이 없습니다");
-        std::env::set_var(AUTO_DOWNLOAD_ENV, "0");
-        assert!(!ensure_model(&dir).unwrap());
-        std::env::remove_var(AUTO_DOWNLOAD_ENV);
-        assert!(!dir.exists());
-        assert!(ensure_model(&dir).unwrap());
-        assert!(dir.join("active.json").exists());
-        assert!(!ensure_model(&dir).unwrap(), "이미 있으면 다시 받지 않습니다");
-    }
-
-    #[test]
-    fn the_terminal_line_shows_the_percent() {
-        let p = Progress { model: "zoro", percent: 50, message: "다운로드 중".into() };
-        assert!(progress_line(&p).starts_with(&format!("[{}{}]  50%", "#".repeat(15), "-".repeat(15))));
     }
 
     #[test]
