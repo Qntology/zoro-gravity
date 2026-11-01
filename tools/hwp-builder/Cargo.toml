@@ -1,0 +1,11 @@
+[package]
+name = "zorogravity-hwp"
+version = "0.1.0"
+edition = "2021"
+description = "zoro-gravity 공문서 HWP 생성 (rhwp): 내부결재용 · 민원인 교부용 이중 문서"
+license = "Apache-2.0"
+
+[dependencies]
+anyhow = "1"
+# rhwp 는 crates.io 에 없어서 원본 저장소를 씁니다. 저장 형식이 바뀌지 않게 커밋을 고정합니다.
+rhwp = { git = "https://github.com/edwardkim/rhwp", rev = "1a76570e833917d15817415a53c09ad61ab3203f", default-features = false }

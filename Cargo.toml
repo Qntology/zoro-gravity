@@ -4,7 +4,7 @@
 # 참고 구현: https://github.com/Qntology/logis-center (commerce/src-tauri 의 Cargo 설정 · accel 검증 로직)
 
 [workspace]
-members = ["core", "tools/gguf-convert", "tools/model-settings", "app/src-tauri"]
+members = ["core", "tools/gguf-convert", "tools/model-settings", "tools/hwp-builder", "app/src-tauri"]
 resolver = "2"
 
 [patch.crates-io]
