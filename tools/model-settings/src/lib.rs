@@ -8,7 +8,8 @@
 //! | macOS | `~/Library/Application Support/zorogravity/models` |
 //! | Linux | `$XDG_DATA_HOME/zorogravity/models` (없으면 `~/.local/share/zorogravity/models`) |
 //!
-//! 다운로드는 `download` 기능에 있습니다. 코어 엔진은 모델을 올릴 때 파일이 없으면 [`ensure_model`] 로 내려받습니다.
+//! 다운로드는 `download` 기능에 있습니다. 앱이 켜질 때 모델이 없으면 앱이 내려받고 설정 화면에 진행률을 표시합니다.
+//! 코어 엔진은 폴더 위치만 씁니다.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,7 +19,7 @@ use anyhow::{bail, Context, Result};
 #[cfg(feature = "download")]
 mod download;
 #[cfg(feature = "download")]
-pub use download::{download, ensure_model, Progress, AUTO_DOWNLOAD_ENV, MIRROR_ENV};
+pub use download::{download, Progress, MIRROR_ENV};
 
 /// 앱 데이터 폴더 이름
 pub const APP_DIR: &str = "zorogravity";

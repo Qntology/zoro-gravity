@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "키오스크와 콘솔 창의 기본 권한",
+  "windows": ["kiosk", "officer"],
+  "permissions": ["core:default"]
+}

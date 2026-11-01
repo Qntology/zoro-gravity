@@ -29,9 +29,9 @@
 | 모델 양자화 (GGUF Q4 · Q8, 비전 BF16) | 구현 · gocr · zoro 모두 q8 선택. [docs/model-quantization.md](docs/model-quantization.md) |
 | 장치 선택 · 커널 자가 검증 (ROCm · Vulkan · CPU) | 구현 · 실측은 아래 |
 | HWP 문서 생성 (@rhwp) | 미구현 (본문 텍스트만) |
-| 모델 다운로드 · 삭제 (AppData, 진행률 표시) | 구현 (`tools/model-settings`). 앱 본체가 없어서 설정 화면은 작은 로컬 서버로 띄웁니다 |
+| 모델 다운로드 · 삭제 (AppData, 진행률 표시) | 구현 (`tools/model-settings`, 앱 설정 화면) |
 | KV 캐시 FP8 (ROCm · Vulkan · CUDA) | 구현 (`ai::kv_turbo`). CPU 단위 테스트만 통과했고 **GPU 에서는 아직 돌려 보지 않았습니다** |
-| Tauri 키오스크 · 공무원 콘솔 | 미구현 |
+| Tauri 앱 (`app`) | 두 창 틀과 모델 설정만 구현. 심사 화면은 미구현 |
 | 영속 저장 (SQLite) | 미구현 (메모리) |
 | 사건 간 관계망 누적 | 미구현 (법무 검토 필요) |
 
@@ -45,7 +45,7 @@
 | Linux | `run/linux/cuda.sh` | `run/linux/rocm.sh` | `run/linux/vulkan.sh` |
 | macOS | 지원 안 됨 | 지원 안 됨 | `run/macos/vulkan.command` |
 
-모델 관리 화면은 `run\windows\models.bat` · `run/linux/models.sh` · `run/macos/models.command` 입니다.
+앱은 `run\windows\app.bat` · `run/linux/app.sh` · `run/macos/app.command` 로 실행합니다.
 
 ```bat
 :: 기본은 판단 경로 전체를 도는 decide_probe 입니다. 예제 이름과 인자를 주면 그 예제를 돌립니다.
@@ -71,10 +71,7 @@ run\windows\rocm.bat read_page 이미지.jpg
 
 `ZOROGRAVITY_MODELS_DIR` 로 폴더를 바꿀 수 있습니다.
 
-```bat
-:: 모델 관리 화면을 엽니다. 진행률 막대로 내려받고, 모델별 · 전체 삭제를 합니다.
-cargo run --release -p zorogravity-models
-```
+앱을 켜면 없는 모델을 자동으로 내려받고, 공무원 창의 설정 화면에 진행률을 표시합니다. 삭제도 이 화면에서 합니다. 예제만 돌릴 때는 앱으로 모델을 먼저 받아 두어야 합니다.
 
 | 모델 | 내려받는 곳 | 크기 |
 | --- | --- | --- |
@@ -83,8 +80,7 @@ cargo run --release -p zorogravity-models
 | `siglip2` | 없음. 직접 변환해서 `models/siglip2` 에 넣습니다 ([docs/document-crop.md](docs/document-crop.md)) | - |
 
 - `.tmp` 로 받아서 크기가 맞을 때만 이름을 바꾸므로 받다 만 파일이 모델로 열리지 않습니다. 끊겨도 다시 누르면 이어 받습니다.
-- 망이 분리된 곳은 `ZOROGRAVITY_MODEL_MIRROR` 에 같은 경로 구조의 미러 주소를 줍니다.
-- 모델을 올릴 때 파일이 없으면 엔진이 터미널에 진행률을 보이며 바로 내려받고 이어서 실행합니다. 따로 실행할 것은 없습니다. 인터넷이 없는 곳은 `ZOROGRAVITY_AUTO_DOWNLOAD=0` 으로 끕니다.
+- `ZOROGRAVITY_MODEL_MIRROR` 에 같은 경로 구조의 미러 주소를 줄 수 있습니다.
 
 ## 빌드와 실행
 
@@ -188,7 +184,8 @@ zorogravity/
 │   │                       automation_eval · jev_format_search · write_eval
 │   └── tests/              governance.rs (명세 사례 엔드투엔드) · real_models.rs (실제 모델 점검, --ignored)
 ├── tools/gguf-convert/     zorogravity-gguf: safetensors → GGUF (Q4_K · Q8_0, 비전 BF16), 정밀도 점검, jev_head 변환
-├── tools/model-settings/   zorogravity-models: 모델 폴더(AppData) · 다운로드 · 삭제 · 모델 관리 화면
+├── tools/model-settings/   zorogravity-models: 모델 폴더(AppData) · 다운로드 · 삭제
+├── app/                    Tauri + React 앱: 키오스크 · 공무원 콘솔 창, 모델 설정 화면
 ├── run/                    백엔드별 실행 스크립트 (windows · linux · macos)
 ├── scripts/                ROCm · CUDA 빌드 환경, 실행 스크립트 공용 부분, 평가 · 학습 스크립트
 └── docs/
