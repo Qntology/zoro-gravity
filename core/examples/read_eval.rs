@@ -15,6 +15,7 @@ use std::time::Instant;
 use anyhow::Result;
 use zorogravity_core::ai::accel;
 use zorogravity_core::ai::document::{DocumentReader, ReadOptions};
+use zorogravity_core::ai::model_store::models_dir;
 use zorogravity_core::ai::residency::{Budget, Residency};
 use zorogravity_core::ai::siglip2::plan::PlanParams;
 
@@ -76,7 +77,7 @@ fn main() -> Result<()> {
     let device = accel::select_device()?;
     println!("장치 {} · {options:?}", accel::backend_name(&device));
     let residency = Residency::shared(device.clone(), Budget::auto(&device));
-    let reader = DocumentReader::open(Path::new("models"), residency)?.with_options(options);
+    let reader = DocumentReader::open(&models_dir(), residency)?.with_options(options);
 
     let mut stems: Vec<String> = fs::read_dir(dir)?
         .filter_map(|e| e.ok().map(|e| e.path()))

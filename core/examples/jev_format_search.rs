@@ -17,6 +17,7 @@ use anyhow::Result;
 use candle_core::Device;
 use zorogravity_core::ai::accel;
 use zorogravity_core::ai::jev_head::JevHead;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::residency::{Budget, Residency};
 use zorogravity_core::ai::tokenizer::token_covering;
 use zorogravity_core::ai::zoro::ZoroBackbone;
@@ -101,7 +102,7 @@ struct Tally {
 
 fn main() -> Result<()> {
     let path = std::env::args().nth(1).unwrap_or_else(|| "out/jev_cases.json".into());
-    let dir = std::env::args().nth(2).unwrap_or_else(|| "models/zoro".into());
+    let dir = std::env::args().nth(2).unwrap_or_else(|| model_dir("zoro").display().to_string());
     let dump = std::env::args().nth(3).unwrap_or_else(|| "out/jev_scores.txt".into());
     let device = accel::select_device()?;
     println!("장치 {}", accel::backend_name(&device));

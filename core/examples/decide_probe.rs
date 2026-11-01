@@ -18,6 +18,7 @@ use std::time::Instant;
 use anyhow::Result;
 use zorogravity_core::ai::accel;
 use zorogravity_core::ai::jev_head::JevHead;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::pointer::{Backbone, PointerHidden, PointerModel, PointerPrompt};
 use zorogravity_core::ai::residency::{Budget, Residency};
 use zorogravity_core::ai::tokenizer::token_covering;
@@ -47,7 +48,7 @@ fn task(path: &str, homonym: &str) -> DecisionTask {
 }
 
 fn main() -> Result<()> {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| "models/zoro".into());
+    let dir = std::env::args().nth(1).unwrap_or_else(|| model_dir("zoro").display().to_string());
     let device = accel::select_device()?;
     println!("장치 {}", accel::backend_name(&device));
     let residency = Residency::shared(device.clone(), Budget::auto(&device));

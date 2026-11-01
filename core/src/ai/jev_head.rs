@@ -173,7 +173,7 @@ mod tests {
     #[test]
     #[ignore]
     fn real_weights_have_the_expected_shapes() -> Result<()> {
-        let head = JevHead::from_safetensors(Path::new("../models/zoro/jev_head.safetensors"))?;
+        let head = JevHead::from_safetensors(&zorogravity_models::model_dir("zoro").join("jev_head.safetensors"))?;
         assert_eq!(head.wq_t.dims(), &[HIDDEN, QK_DIM]);
         assert_eq!(head.wk_t.dims(), &[HIDDEN, QK_DIM]);
         Ok(())

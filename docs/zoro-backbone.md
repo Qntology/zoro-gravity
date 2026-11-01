@@ -187,7 +187,7 @@ Vulkan 은 같은 글에서 자기회귀 80.0 ms, 0-2-3 74.9 ms, 2-2-3 88.1 ms, 
 
 ```rust
 let residency = Residency::shared(device.clone(), Budget::auto(&device));
-let model = zorogravity_core::ai::zoro::open_decision_model(Path::new("models/zoro"), residency)?; // PointerModel
+let model = zorogravity_core::ai::zoro::open_decision_model(&model_dir("zoro"), residency)?; // PointerModel
 let engine = Engine::new(salt, policy, Some(Box::new(model)));
 ```
 

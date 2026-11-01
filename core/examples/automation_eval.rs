@@ -31,6 +31,7 @@ use anyhow::{Context, Result};
 use candle_core::Device;
 use zorogravity_core::ai::accel;
 use zorogravity_core::ai::jev_head::JevHead;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::pointer::{PointerPrompt, SYSTEM_PROMPT};
 use zorogravity_core::ai::residency::{Budget, Residency};
 use zorogravity_core::ai::tokenizer::token_covering;
@@ -482,7 +483,7 @@ fn main() -> Result<()> {
         FORMAT.set(Format::parse(&s).context("ZOROGRAVITY_JEV_FORMAT 형식")?).ok();
     }
     println!("형식: {}", format_in_use().label());
-    let dir = std::env::args().nth(1).unwrap_or_else(|| "models/zoro".into());
+    let dir = std::env::args().nth(1).unwrap_or_else(|| model_dir("zoro").display().to_string());
     let device = accel::select_device()?;
     println!("장치 {}", accel::backend_name(&device));
     let residency = Residency::shared(device.clone(), Budget::auto(&device));

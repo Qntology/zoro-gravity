@@ -1,6 +1,6 @@
 # 모델 양자화 (GGUF Q4 · Q8, 비전 BF16)
 
-`models/` 폴더의 두 모델을 GGUF 로 바꿉니다. 변환과 점검은 `tools/gguf-convert` 의 `zorogravity-gguf` 가 합니다. 모델 파일은 저장소에 올리지 않습니다 (`.gitignore` 의 `models/`).
+모델 폴더(`%LOCALAPPDATA%\zorogravity\models` 등, [README](../README.md) 의 "모델 폴더와 다운로드")의 두 모델을 GGUF 로 바꿉니다. 변환과 점검은 `tools/gguf-convert` 의 `zorogravity-gguf` 가 합니다. 모델 파일은 저장소에 올리지 않습니다 (`.gitignore` 의 `models/`).
 zorogravity 는 `gocr` · `zoro` · `siglip2` 의 가중치를 씁니다. 다른 모델(Qwen3.5 등)을 쓰지 않고, logis-center 의 모델 코드도 가져오지 않았습니다. logis-center 는 장치 선택, 커널 자가 검증, 양자화 GPU 실행 같은 **최적화 방식**만 참고했습니다.
 
 ## 대상
@@ -99,13 +99,13 @@ q4 로 바꿀 수 있는 조건은 두 가지입니다. 디코딩 품질 평가�
 
 ```bat
 cargo build -p zorogravity-gguf
-target\debug\zorogravity-gguf.exe auto models\gocr
-target\debug\zorogravity-gguf.exe auto models\zoro
-target\debug\zorogravity-gguf.exe auto models\siglip2
-target\debug\zorogravity-gguf.exe head models\zoro\jev_head.pt models\zoro\jev_head.safetensors
+target\debug\zorogravity-gguf.exe auto %LOCALAPPDATA%\zorogravity\models\gocr
+target\debug\zorogravity-gguf.exe auto %LOCALAPPDATA%\zorogravity\models\zoro
+target\debug\zorogravity-gguf.exe auto %LOCALAPPDATA%\zorogravity\models\siglip2
+target\debug\zorogravity-gguf.exe head %LOCALAPPDATA%\zorogravity\models\zoro\jev_head.pt %LOCALAPPDATA%\zorogravity\models\zoro\jev_head.safetensors
 ```
 
-만들어지는 파일 (모두 `models/` 안):
+만들어지는 파일 (모두 모델 폴더 안):
 
 - `gocr/gocr-q4.gguf`, `gocr-q8.gguf`, `mmproj-gocr-bf16.gguf`, `precision-q4.json`, `precision-q8.json`, `active.json`
 - `zoro/zoro-q4.gguf`, `zoro-q8.gguf`, `mmproj-zoro-bf16.gguf`, `precision-q4.json`, `precision-q8.json`, `active.json`

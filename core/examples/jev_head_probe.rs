@@ -16,6 +16,7 @@ use anyhow::{Context, Result};
 use candle_core::{DType, Device, Tensor};
 use candle_nn::ops::softmax_last_dim;
 use zorogravity_core::ai::jev_head::{HIDDEN, JevHead, QK_DIM};
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::verify::det_normal;
 
 fn flat(t: &Tensor) -> Result<Vec<f32>> {
@@ -69,7 +70,7 @@ fn mean_row_cosine(a: &Tensor, b: &Tensor) -> Result<f32> {
 }
 
 fn main() -> Result<()> {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| "models/zoro".into());
+    let dir = std::env::args().nth(1).unwrap_or_else(|| model_dir("zoro").display().to_string());
     let dir = Path::new(&dir);
     let dev = Device::Cpu;
     let t = candle_core::safetensors::load(dir.join("jev_head.safetensors"), &dev)?;

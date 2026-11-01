@@ -64,6 +64,11 @@ pub fn trusted(device: &Device, op: &str, tol: f32, probe: impl FnOnce() -> Resu
     ok
 }
 
+/// 실제 데이터에서 잘못된 것이 드러난 연산을 이 프로세스가 끝날 때까지 쓰지 않습니다.
+pub fn revoke(device: &Device, op: &str) {
+    verdicts().insert(format!("{}#{:?}/{op}", accel::backend_name(device), device.location()), false);
+}
+
 /// 결정적 정규분포 난수 (xorshift64 + Box–Muller). 장치와 무관하게 같은 검증 입력을 만듭니다.
 pub fn det_normal(n: usize, seed: u64) -> Vec<f32> {
     let mut s = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ 0xD1B5_4A32_D192_ED03;

@@ -28,7 +28,7 @@ set ZOROGRAVITY_DEVICE=vulkan   :: auto | cuda | rocm | vulkan | cpu
 ## 1. Vulkan 빌드와 실행
 
 ```bat
-cargo run -p zorogravity-core --example qmatmul_check -- models\zoro
+cargo run -p zorogravity-core --example qmatmul_check -- %LOCALAPPDATA%\zorogravity\models\zoro
 cargo run -p zorogravity-core --example softmax_check
 ```
 
@@ -38,7 +38,7 @@ cargo run -p zorogravity-core --example softmax_check
 call scripts\rocm-env.bat
 cargo build -p zorogravity-core --no-default-features --features rocm --example qmatmul_check
 set ZOROGRAVITY_DEVICE=rocm
-target\debug\examples\qmatmul_check.exe models\zoro
+target\debug\examples\qmatmul_check.exe %LOCALAPPDATA%\zorogravity\models\zoro
 ```
 
 `scripts\rocm-env.bat` 이 하는 일:
@@ -56,7 +56,7 @@ target\debug\examples\qmatmul_check.exe models\zoro
 call scripts\cuda-env.bat
 cargo build -p zorogravity-core --no-default-features --features cuda --example qmatmul_check
 set ZOROGRAVITY_DEVICE=cuda
-target\debug\examples\qmatmul_check.exe models\zoro
+target\debug\examples\qmatmul_check.exe %LOCALAPPDATA%\zorogravity\models\zoro
 ```
 
 - `candle-kernels` 가 빌드 중에 `nvcc` 로 커널을 컴파일합니다. 그래서 드라이버만으로는 빌드되지 않고 CUDA Toolkit 이 있어야 합니다.
@@ -144,6 +144,26 @@ zoro 32층 순전파 하나의 시간입니다 (층마다 기다려서 재서 �
 
 두 가지 모두 ROCm 만의 변경입니다. 커널은 입력 20행까지만 쓰므로 판단(프리필)의 확률은 그대로입니다.
 
+### 3.7 KV 캐시 FP8
+
+**ROCm · Vulkan · CUDA 모두 가능합니다.** 포크가 세 백엔드 모두에 FP8 압축 · 복원 · 압축 행 어텐션 커널(`tq_quantize` · `tq_dequantize` · `tq_attention`)을 갖고 있습니다 (Vulkan 은 GLSL 포팅). `ai::kv_turbo` 가 logis-center 의 `kv_turbo.rs` · `accel_check.rs` 와 같은 정책으로 씁니다. 스케일 없는 `to_dtype(F8E4M3)` 캐스팅은 쓰지 않습니다. 448 을 넘으면 포화하고 작은 값은 사라지기 때문입니다.
+
+| `ZOROGRAVITY_KV_PRECISION` | 동작 |
+| --- | --- |
+| `auto` (기본) | 원본(F32) KV + `ZOROGRAVITY_VRAM_HEADROOM_MB`(640 MB) 가 장치 여유 메모리에 들어가면 원본, 아니면 FP8 |
+| `exact` | 항상 원본 |
+| `compressed` (`fp8`) | GPU 에서 항상 FP8 |
+
+- **형식**: K · V 모두 벡터별 스케일 FP8(e4m3), 회전 없음. 토큰 · 헤드 하나가 `head_dim` + 8 바이트라서 F32 의 약 1/4 입니다. `CANDLE_TURBO_QUANT_*` 로 형식을 지정하면 포크의 설정을 따릅니다.
+- **적용 범위**: gocr 언어 디코더의 KV 캐시와 zoro 전체 주의 층의 KV 캐시입니다. 선형 주의의 순환 상태와 판단(프리필 한 번)은 그대로입니다. CPU 는 압축하지 않습니다.
+- **계산 경로** (`turbo_kv_step` 과 같음): 이력이 없는 프리필은 원본으로, 새 토큰 하나는 압축 행 위에서 바로, 여러 토큰(추측 · 블록 초안)은 이력만 풀어서 새 토큰의 원본과 함께 계산합니다.
+- **자가 검증**: GPU 압축 · 복원을 CPU 코덱과 비교하고(`kv_fp8_pack_d*`), 압축 행 어텐션을 CPU 기준과 비교합니다(`kv_fp8_attn_*`). 압축이 틀리면 원본 KV 를 쓰고, 어텐션만 틀리면 압축은 유지하고 풀어서 계산합니다.
+- **실측 감시**: 프리필의 마지막 토큰을 압축 행으로도 계산해 오차를 `[ZOROGRAVITY-KV] FP8 실측 오차` 로 남깁니다. 50% 를 넘으면 그 장치의 압축을 끕니다.
+
+**FP8 은 근사입니다.** logis-center 측정에서 짧은 JSON 추출은 원본과 다음 토큰이 100% 같았지만 수천 토큰의 긴 서술에서는 4% 안팎의 스텝에서 1순위 토큰이 바뀌었습니다. 그래서 기본은 메모리가 모자랄 때만 압축합니다. 압축 중에는 추측의 양에 따라 글이 달라질 수 있고(읽는 묶음에 따라 새 토큰이 원본이거나 FP8 입니다), 공문서 초안의 재현성이 중요하면 `exact` 를 쓰세요.
+
+**미검증**: CPU 코덱으로 단위 테스트만 했습니다. 실제 GPU · 실제 모델의 속도, 메모리, 오차, 글 변화는 재지 않았습니다. Vulkan 은 일반 텐서가 시스템 메모리에 있어서 `auto` 가 보는 장치 여유와 KV 가 실제로 쓰는 메모리가 다릅니다 (3.4절).
+
 ## 4. 알려진 문제
 
 ### 4.1 Vulkan 셰이더의 무한대 리터럴 (수정 완료, sungu-che 포크에 올림)
@@ -187,5 +207,8 @@ zorogravity 는 포크를 고치지 않고 올리기 전후의 장치 여유 메
 | `CANDLE_ROCM_ALLOC_CACHE_MB` | 1024 (zorogravity 가 정함, 포크 기본은 256) | 해제한 버퍼를 재사용하는 캐시의 한도 |
 | `ZOROGRAVITY_ZORO_SPECULATION` | 장치별 기본값 | 글쓰기의 추측 `마스크:탐색:폭`. `0:0:0` 이면 한 토큰씩 읽습니다 |
 | `ZOROGRAVITY_WARM` | 켜짐 | `0` 이면 가중치 파일을 배경에서 미리 읽지 않습니다 |
+| `ZOROGRAVITY_KV_PRECISION` | `auto` | KV 캐시 정밀도 `auto` · `exact` · `compressed` (3.7절) |
+| `CANDLE_TURBO_QUANT` | `on` | `off` 이면 KV 를 압축하지 않습니다 |
+| `CANDLE_TURBO_QUANT_*` | 벡터별 FP8 | 포크의 KV 압축 형식 · 비트 · 회전 변수. 포크 README 참고 |
 | `HIP_ARCH` | 자동 감지 | GPU 타깃. RX 6600 은 `gfx1032` |
 | `CUDA_PATH` | 설치 프로그램이 설정 | CUDA Toolkit 위치 (`nvcc`, `cublas`) |

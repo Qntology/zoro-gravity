@@ -4,11 +4,11 @@
 //!
 //! 이미지 전체 일치도(로짓 → 확률)와, 문구마다 패치 코사인의 격자를 찍습니다.
 
-use std::path::Path;
 use std::time::Instant;
 
 use anyhow::Result;
 use zorogravity_core::ai::accel;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::residency::{Budget, Residency};
 use zorogravity_core::ai::siglip2::image::prepare;
 use zorogravity_core::ai::siglip2::Siglip2;
@@ -26,7 +26,7 @@ fn main() -> Result<()> {
     let device = accel::select_device()?;
     println!("장치 {}", accel::backend_name(&device));
     let residency = Residency::shared(device.clone(), Budget::auto(&device));
-    let model = Siglip2::open(Path::new("models/siglip2"), residency.clone())?;
+    let model = Siglip2::open(&model_dir("siglip2"), residency.clone())?;
     let img = image::open(&path)?.to_rgb8();
 
     let t = Instant::now();

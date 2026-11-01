@@ -13,6 +13,7 @@ use std::time::Instant;
 
 use anyhow::{bail, Result};
 use zorogravity_core::ai::accel;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::residency::{Budget, Residency};
 use zorogravity_core::ai::siglip2::image::prepare;
 use zorogravity_core::ai::siglip2::Siglip2;
@@ -29,7 +30,7 @@ fn main() -> Result<()> {
     let device = accel::select_device()?;
     println!("장치 {}", accel::backend_name(&device));
     let residency = Residency::shared(device.clone(), Budget::auto(&device));
-    let model = Siglip2::open(Path::new("models/siglip2"), residency)?;
+    let model = Siglip2::open(&model_dir("siglip2"), residency)?;
     match args.first().map(String::as_str) {
         Some("grids") if args.len() == 4 => {
             let max: usize = args[2].parse()?;

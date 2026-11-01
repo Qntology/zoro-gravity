@@ -2,10 +2,13 @@
 //!
 //! 장치 전용 커널은 처음 쓰기 전에 CPU 기준과 비교해 맞을 때만 쓰고, 틀리거나 없으면 같은 식의 텐서 연산으로 계산합니다 (`ai::verify`).
 
+use std::sync::Arc;
+
 use anyhow::{bail, Result};
 use candle_core::{Device, Tensor, D};
 use candle_nn::ops::softmax_last_dim;
 
+use crate::ai::kv_turbo::KvCodec;
 use crate::ai::verify;
 
 /// 질의를 이 크기로 잘라서 주의를 계산해 점수 행렬 `[헤드, 질의, 키]` 의 크기를 묶어 둡니다.
@@ -213,6 +216,7 @@ pub fn causal_attention(q: &Tensor, k: &Tensor, v: &Tensor, scale: f64, causal: 
 //
 // 프리필 구간(`base`)과 뒤에 붙는 구간(`tail`)으로 나눕니다. 토큰마다 전체 캐시를 복사하지 않으려는 것입니다.
 // 키를 헤드 수만큼 반복하지 않고 질의를 KV 헤드별로 모아 곱해서(GQA) 메모리와 시간을 아낍니다.
+// 코덱이 있으면 두 구간 모두 FP8 압축 행으로 보관합니다 (`ai::kv_turbo`).
 
 /// `tail` 이 이만큼 쌓이면 `base` 로 합칩니다.
 pub const TAIL_LIMIT: usize = 128;
@@ -264,30 +268,43 @@ impl StepMask {
 
 #[derive(Default)]
 pub struct LayerCache {
-    /// `[Hkv, D, T]` (전치해 둔 키)
+    /// `[Hkv, D, T]` (전치해 둔 키). 코덱이 있으면 `[Hkv, T, 워드]` 압축 행입니다.
     base_kt: Option<Tensor>,
-    /// `[Hkv, T, D]`
+    /// `[Hkv, T, D]`. 코덱이 있으면 `[Hkv, T, 워드]` 압축 행입니다.
     base_v: Option<Tensor>,
     tail_kt: Option<Tensor>,
     tail_v: Option<Tensor>,
+    codec: Option<Arc<KvCodec>>,
 }
 
 impl LayerCache {
+    pub fn new(codec: Option<Arc<KvCodec>>) -> Self {
+        Self { codec, ..Self::default() }
+    }
+
     pub fn push(&mut self, kt: &Tensor, v: &Tensor) -> Result<()> {
+        // 실측 감시가 압축을 끈 층은 아직 비어 있으므로 원본으로 이어 갑니다.
+        if self.codec.as_ref().is_some_and(|c| c.broken()) && self.segments().is_empty() {
+            self.codec = None;
+        }
+        let (kt, v, key_axis) = match &self.codec {
+            Some(c) => (c.pack_k(&kt.transpose(1, 2)?.contiguous()?)?, c.pack_v(v)?, 1),
+            None => (kt.clone(), v.clone(), 2),
+        };
         self.tail_kt = Some(match self.tail_kt.take() {
-            Some(t) => Tensor::cat(&[&t, kt], 2)?,
-            None => kt.clone(),
+            Some(t) => Tensor::cat(&[&t, &kt], key_axis)?,
+            None => kt,
         });
         self.tail_v = Some(match self.tail_v.take() {
-            Some(t) => Tensor::cat(&[&t, v], 1)?,
-            None => v.clone(),
+            Some(t) => Tensor::cat(&[&t, &v], 1)?,
+            None => v,
         });
         let tail_len = self.tail_v.as_ref().map_or(Ok(0), |t| t.dim(1))?;
         if tail_len >= TAIL_LIMIT || self.base_v.is_none() {
             let (tk, tv) = (self.tail_kt.take(), self.tail_v.take());
             if let (Some(tk), Some(tv)) = (tk, tv) {
                 self.base_kt = Some(match self.base_kt.take() {
-                    Some(b) => Tensor::cat(&[&b, &tk], 2)?,
+                    Some(b) => Tensor::cat(&[&b, &tk], key_axis)?,
                     None => tk,
                 });
                 self.base_v = Some(match self.base_v.take() {
@@ -308,6 +325,40 @@ impl LayerCache {
             out.push((k, v));
         }
         out
+    }
+
+    /// 캐시가 차지하는 바이트 수
+    pub fn stored_bytes(&self) -> usize {
+        let bytes = |t: &Tensor| t.elem_count() * t.dtype().size_in_bytes();
+        self.segments().iter().map(|(k, v)| bytes(k) + bytes(v)).sum()
+    }
+
+    /// 새 토큰의 질의 `q` `[H, n, D]` 로 캐시와 새 키 · 값을 읽어 `[H, n, D]` 를 돌려줍니다.
+    ///
+    /// 압축 캐시는 logis-center `turbo_kv_step` 과 같이 나눕니다. 이력이 없으면 원본으로, 새 토큰이 하나면 압축 행 위에서 바로,
+    /// 여러 토큰이면 이력만 풀어서 새 토큰의 원본과 함께 계산합니다.
+    pub fn attend(&self, q: &Tensor, kt: &Tensor, v: &Tensor, mask: &StepMask, scale: f64) -> Result<Tensor> {
+        let past = self.segments();
+        let Some(codec) = &self.codec else {
+            return attend(q, kt, v, &past, mask, scale);
+        };
+        if past.is_empty() {
+            let out = attend(q, kt, v, &[], mask, scale)?;
+            codec.watch(q, kt, v, &out, scale)?;
+            return Ok(out);
+        }
+        if q.dim(1)? == 1 && mask.mode == AttnMode::Causal && codec.fused() {
+            let (k_new, v_new) = (codec.pack_k(&kt.transpose(1, 2)?.contiguous()?)?, codec.pack_v(v)?);
+            let mut rows = past;
+            rows.push((&k_new, &v_new));
+            return codec.attend_rows(q, &rows, scale);
+        }
+        let plain = past
+            .iter()
+            .map(|(k, v)| Ok((codec.unpack_k(k)?.transpose(1, 2)?.contiguous()?, codec.unpack_v(v)?)))
+            .collect::<Result<Vec<_>>>()?;
+        let refs: Vec<(&Tensor, &Tensor)> = plain.iter().map(|(k, v)| (k, v)).collect();
+        attend(q, kt, v, &refs, mask, scale)
     }
 }
 
@@ -480,6 +531,47 @@ mod tests {
         assert_eq!(diff, 0.0);
         let last = (a.narrow(1, tt - 1, 1)? - b.narrow(1, tt - 1, 1)?)?.abs()?.max_all()?.to_scalar::<f32>()?;
         assert!(last > 1e-3, "마지막 토큰은 자기 자신의 K·V 에 반응해야 합니다");
+        Ok(())
+    }
+
+    /// 앞 `past` 토큰을 캐시에 넣고 뒤 `n` 토큰을 읽습니다. 코덱이 없으면 원본 기준값입니다.
+    fn read_after(codec: Option<Arc<KvCodec>>, past: usize, n: usize, mode: AttnMode) -> Result<(Tensor, usize)> {
+        let (h, hkv, d, tt) = (8usize, 4usize, 16usize, past + n);
+        let q = t(det_normal(h * tt * d, 21), &[h, tt, d]);
+        let k = t(det_normal(hkv * tt * d, 22), &[hkv, tt, d]);
+        let v = t(det_normal(hkv * tt * d, 23), &[hkv, tt, d]);
+        let kt = k.transpose(1, 2)?.contiguous()?;
+        let cut = |x: &Tensor, dim: usize, s: usize, l: usize| x.narrow(dim, s, l).unwrap().contiguous().unwrap();
+        let mut lc = LayerCache::new(codec);
+        lc.push(&cut(&kt, 2, 0, past / 2), &cut(&v, 1, 0, past / 2))?;
+        lc.push(&cut(&kt, 2, past / 2, past - past / 2), &cut(&v, 1, past / 2, past - past / 2))?;
+        let mask = StepMask::new(mode, n, h / hkv, &Device::Cpu)?;
+        let out = lc.attend(&cut(&q, 1, past, n), &cut(&kt, 2, past, n), &cut(&v, 1, past, n), &mask, 0.25)?;
+        Ok((out, lc.stored_bytes()))
+    }
+
+    #[test]
+    fn a_compressed_cache_stays_close_to_the_exact_one_and_is_smaller() -> Result<()> {
+        // 새 토큰 하나 (압축 행 위에서 바로), 여러 토큰 (이력만 풀어서), 블록 초안을 모두 지납니다.
+        for (n, mode) in [(1usize, AttnMode::Causal), (3, AttnMode::Causal), (3, AttnMode::Block)] {
+            let (exact, plain_bytes) = read_after(None, 30, n, mode)?;
+            let codec = Arc::new(KvCodec::new(16, &Device::Cpu)?);
+            let (got, packed_bytes) = read_after(Some(codec), 30, n, mode)?;
+            assert_eq!(got.dims(), exact.dims());
+            let err = rel_err(&got, &exact)?;
+            assert!(err < 0.1, "{n}토큰 {mode:?}: 원본 대비 상대오차 {err}");
+            // 벡터 하나가 16 + 8 바이트입니다 (F32 는 64 바이트).
+            assert_eq!(packed_bytes * 64, plain_bytes * 24);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_compressed_cache_keeps_merging_past_the_tail_limit() -> Result<()> {
+        let codec = Arc::new(KvCodec::new(16, &Device::Cpu)?);
+        let (exact, _) = read_after(None, TAIL_LIMIT * 2 + 7, 1, AttnMode::Causal)?;
+        let (got, _) = read_after(Some(codec), TAIL_LIMIT * 2 + 7, 1, AttnMode::Causal)?;
+        assert!(rel_err(&got, &exact)? < 0.1);
         Ok(())
     }
 }

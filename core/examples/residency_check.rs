@@ -14,12 +14,12 @@
 //!   cargo run -p zorogravity-core --example residency_check
 //!   ZOROGRAVITY_DEVICE=rocm cargo run -p zorogravity-core --no-default-features --features rocm --example residency_check
 
-use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{bail, Result};
 use zorogravity_core::ai::accel;
 use zorogravity_core::ai::gguf_model::load_active;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::residency::{Budget, Group, ModelId, ModelSpec, Phase, Residency};
 use zorogravity_core::ai::weights::WeightFile;
 
@@ -27,8 +27,8 @@ fn mb(bytes: u64) -> f64 {
     bytes as f64 / (1u64 << 20) as f64
 }
 
-fn spec(dir: &str, id: ModelId) -> Result<ModelSpec> {
-    let active = load_active(Path::new(dir))?;
+fn spec(model: &str, id: ModelId) -> Result<ModelSpec> {
+    let active = load_active(&model_dir(model))?;
     let spec = ModelSpec::new(id, Arc::new(WeightFile::open(&active.path)?));
     Ok(match active.open_mmproj()? {
         Some(mmproj) => spec.with_mmproj(mmproj),
@@ -38,8 +38,8 @@ fn spec(dir: &str, id: ModelId) -> Result<ModelSpec> {
 
 fn main() -> Result<()> {
     let device = accel::select_device()?;
-    let zoro = spec("models/zoro", ModelId::Zoro)?;
-    let gocr = spec("models/gocr", ModelId::Gocr)?;
+    let zoro = spec("zoro", ModelId::Zoro)?;
+    let gocr = spec("gocr", ModelId::Gocr)?;
     let zoro_blocks = zoro.file.meta_usize("zoro.block_count")? as usize;
     let gocr_blocks = gocr.file.meta_usize("gocr.block_count")? as usize;
 

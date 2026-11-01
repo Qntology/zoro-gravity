@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>모델 관리</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f7f8; --panel: #ffffff; --line: rgba(0, 0, 0, 0.12); --text: #1f2328; --muted: #656d76;
+    --green: #28a745; --grey: #6c757d; --blue: #007bff; --teal: #17a2b8; --red: #d92d20; --red-soft: rgba(217, 45, 32, 0.1);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #16181c; --panel: #1f2227; --line: rgba(255, 255, 255, 0.14); --text: #e6e8eb; --muted: #9aa3ad; --red: #ff7b72; --red-soft: rgba(255, 123, 114, 0.14); }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 24px 16px; background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+  main { max-width: 640px; margin: 0 auto; }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  p { margin: 0; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .path { word-break: break-all; font-family: ui-monospace, Consolas, monospace; }
+  .actions { display: flex; gap: 8px; margin: 16px 0; flex-wrap: wrap; }
+  .actions button { flex: 1 1 200px; padding: 8px 12px; font-size: 13px; }
+  #models { display: flex; flex-direction: column; gap: 8px; }
+  .row { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; }
+  .top { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .name { font-weight: 600; font-size: 13px; }
+  .buttons { display: flex; gap: 6px; }
+  button { border: none; border-radius: 4px; padding: 4px 10px; font-size: 12px; color: #fff; cursor: pointer; font-family: inherit; }
+  button:disabled { cursor: default; opacity: 0.75; }
+  .download { background: var(--green); }
+  .done { background: var(--grey); }
+  .all { background: var(--teal); }
+  .delete { background: var(--red-soft); color: var(--red); border: 1px solid var(--red); }
+  .bar { height: 8px; margin-top: 8px; border-radius: 4px; background: var(--line); overflow: hidden; display: none; }
+  .bar > div { height: 100%; width: 0; background: var(--blue); transition: width 0.3s; }
+  .note { margin-top: 4px; font-size: 12px; color: var(--muted); word-break: break-all; }
+  .error { color: var(--red); }
+</style>
+</head>
+<body>
+<main>
+  <h1>모델 관리</h1>
+  <p class="muted">심사에 쓰는 AI 모델을 내려받거나 지웁니다. 내려받은 뒤에는 인터넷 없이 동작합니다.</p>
+  <p class="muted path" id="dir"></p>
+  <div class="actions">
+    <button class="all" id="download-all">없는 모델 모두 받기</button>
+    <button class="delete" id="delete-all">모델 모두 삭제</button>
+  </div>
+  <div id="models"></div>
+</main>
+<script>
+  const rows = new Map();
+  let latest = [];
+
+  const size = (b) => b >= 1e9 ? `${(b / 1e9).toFixed(1)} GB` : `${Math.round(b / 1e6)} MB`;
+
+  async function post(path) {
+    const res = await fetch(path, { method: "POST" });
+    const body = await res.json();
+    if (!res.ok) throw new Error(body.error);
+    render(body);
+  }
+
+  function run(row, path) {
+    post(path).catch((e) => { row.pageError = e.message; if (latest.length) paint(row, latest.find((m) => m.name === row.name)); });
+  }
+
+  function makeRow(m) {
+    const el = document.createElement("div");
+    el.className = "row";
+    el.innerHTML = `<div class="top"><span class="name"></span><span class="buttons"><button class="main"></button><button class="delete">삭제</button></span></div>
+      <div class="bar"><div></div></div><div class="note"></div>`;
+    el.querySelector(".name").textContent = `${m.label} / ${m.license}`;
+    const row = { name: m.name, el, main: el.querySelector(".main"), del: el.querySelector(".delete"), bar: el.querySelector(".bar"), fill: el.querySelector(".bar > div"), note: el.querySelector(".note"), pageError: null };
+    row.main.onclick = () => { row.pageError = null; run(row, `/api/download/${m.name}`); };
+    row.del.onclick = () => {
+      if (confirm(`${m.label} 모델을 삭제할까요? 다시 쓰려면 다시 내려받아야 합니다.`)) {
+        row.pageError = null;
+        run(row, `/api/delete/${m.name}`);
+      }
+    };
+    document.getElementById("models").append(el);
+    rows.set(m.name, row);
+    return row;
+  }
+
+  function paint(row, m) {
+    const canDownload = m.repo && !m.installed && !m.running;
+    row.main.disabled = !canDownload;
+    row.main.className = `main ${canDownload ? "download" : "done"}`;
+    row.main.textContent = m.running ? `받는 중 (${m.percent}%)` : m.installed ? "받음" : m.repo ? `다운로드 (${size(m.total_bytes)})` : "링크 없음";
+    row.del.style.display = m.bytes_on_disk > 0 && !m.running ? "" : "none";
+    row.bar.style.display = m.running ? "block" : "none";
+    row.fill.style.width = `${m.percent}%`;
+    const error = row.pageError || m.error;
+    row.note.classList.toggle("error", Boolean(error));
+    row.note.textContent = error ? `오류: ${error}`
+      : m.running ? m.message
+      : m.installed ? `${size(m.bytes_on_disk)} 사용 중`
+      : m.bytes_on_disk > 0 ? `받다 멈춤 (${size(m.bytes_on_disk)}). 다시 누르면 이어 받습니다.`
+      : m.repo ? `huggingface.co/${m.repo}` : "내려받을 곳이 없습니다. 직접 변환해서 모델 폴더에 넣으세요.";
+  }
+
+  function render(data) {
+    latest = data.models;
+    document.getElementById("dir").textContent = `모델 폴더: ${data.dir}`;
+    for (const m of data.models) paint(rows.get(m.name) || makeRow(m), m);
+    document.getElementById("download-all").disabled = !data.models.some((m) => m.repo && !m.installed && !m.running);
+    document.getElementById("delete-all").disabled = !data.models.some((m) => m.bytes_on_disk > 0) || data.models.some((m) => m.running);
+  }
+
+  async function refresh() {
+    try {
+      render(await (await fetch("/api/models")).json());
+    } catch {
+      document.getElementById("dir").textContent = "화면 서버가 꺼졌습니다. 다시 실행하세요.";
+    }
+  }
+
+  document.getElementById("download-all").onclick = () => {
+    const missing = latest.filter((m) => m.repo && !m.installed && !m.running);
+    const total = missing.reduce((sum, m) => sum + m.total_bytes, 0);
+    if (confirm(`없는 모델 ${missing.length}개(${size(total)})를 내려받을까요?`)) {
+      for (const m of missing) run(rows.get(m.name), `/api/download/${m.name}`);
+    }
+  };
+
+  document.getElementById("delete-all").onclick = () => {
+    if (confirm("모델을 모두 삭제할까요? 다시 쓰려면 다시 내려받아야 합니다.")) {
+      post("/api/delete-all").catch((e) => alert(e.message));
+    }
+  };
+
+  refresh();
+  setInterval(refresh, 500);
+</script>
+</body>
+</html>

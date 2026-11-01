@@ -4,7 +4,8 @@ rem
 rem Builds one zorogravity-core example for a backend and runs it. run\windows\<backend>.bat calls this:
 rem     call scripts\run-windows.bat <cuda|rocm|vulkan> [example] [example arguments]
 rem
-rem The default example is decide_probe, the whole decision path. It needs models\zoro.
+rem The default example is decide_probe, the whole decision path. It needs the zoro model in the
+rem models folder, %LOCALAPPDATA%\zorogravity\models. run\windows\models.bat downloads it.
 rem Each backend keeps its own build folder so the caches do not mix (vulkan is the default
 rem feature, so it shares target). With no example the window stays open at the end, so a
 rem double click can still read the output.

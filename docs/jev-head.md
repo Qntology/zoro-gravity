@@ -128,10 +128,10 @@ zoro 백본의 순전파를 구현해서 (`ai::zoro`, [zoro-backbone.md](zoro-ba
 
 ```bat
 python scripts\extract_jev_cases.py zorogravity.txt out\jev_cases.json
-target-rocm\release\examples\jev_format_search.exe out\jev_cases.json models\zoro out\jev_scores.txt
+target-rocm\release\examples\jev_format_search.exe out\jev_cases.json %LOCALAPPDATA%\zorogravity\models\zoro out\jev_scores.txt
 python scripts\jev_format_report.py out\jev_scores.txt
 target-rocm\release\examples\automation_eval.exe
-target-rocm\release\examples\automation_eval.exe models\zoro fresh
+target-rocm\release\examples\automation_eval.exe %LOCALAPPDATA%\zorogravity\models\zoro fresh
 ```
 
 `ZOROGRAVITY_JEV_FORMAT` 과 `ZOROGRAVITY_JEV_SCALE` 로 `automation_eval` 의 형식과 스케일을 바꿀 수 있습니다.

@@ -11,6 +11,7 @@ use std::sync::Mutex;
 
 use anyhow::Result;
 use zorogravity_core::ai::accel;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::residency::{Budget, Residency};
 use zorogravity_core::ai::speculative::Speculation;
 use zorogravity_core::ai::zoro::{parse_speculation, Written, ZoroBackbone};
@@ -85,7 +86,7 @@ impl TextWriter for Compare<'_> {
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let dir = args.first().cloned().unwrap_or_else(|| "models/zoro".into());
+    let dir = args.first().cloned().unwrap_or_else(|| model_dir("zoro").display().to_string());
     let plans: Vec<Speculation> =
         args.get(1).map_or("0-0-0_1-0-3_0-2-3_1-2-3", String::as_str).split('_').map(|p| parse_speculation(&p.replace('-', ":"))).collect::<Result<_>>()?;
 

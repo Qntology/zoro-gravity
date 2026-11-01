@@ -3,13 +3,13 @@
 //!   cargo run -p zorogravity-core --example gocr_probe -- 이미지.png
 //!   cargo run -p zorogravity-core --example gocr_probe -- 이미지.png "Text Recognition:" 200
 
-use std::path::Path;
 use std::time::Instant;
 
 use anyhow::Result;
 use zorogravity_core::ai::accel;
 use zorogravity_core::ai::gocr::image::prepare;
 use zorogravity_core::ai::gocr::{open, GocrInput, Strategy, EARLY_EXIT, TEXT_PROMPT};
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::residency::{Budget, Residency};
 
 fn mb(b: u64) -> f64 {
@@ -44,7 +44,7 @@ fn main() -> Result<()> {
         Ok("verify") => Strategy::Speculative { early_exit: None },
         _ => Strategy::Speculative { early_exit: Some(EARLY_EXIT) },
     };
-    let engine = open(Path::new("models/gocr"), residency.clone(), max_tokens, strategy)?;
+    let engine = open(&model_dir("gocr"), residency.clone(), max_tokens, strategy)?;
     let t = Instant::now();
     let out = engine.recognize(&[GocrInput { image: prepared, prompt }])?;
     let secs = t.elapsed().as_secs_f64();

@@ -3,7 +3,7 @@
 #
 #   bash scripts/run-unix.sh <cuda|rocm|vulkan> [예제] [예제 인자...]
 #
-# 기본 예제는 판단 경로 전체를 도는 decide_probe 이고 models/zoro 가 있어야 합니다.
+# 기본 예제는 판단 경로 전체를 도는 decide_probe 이고 모델 폴더(앱 데이터)에 zoro 가 있어야 합니다.
 # 백엔드마다 빌드 폴더를 따로 써서 캐시가 섞이지 않습니다 (vulkan 은 기본 기능이라 target 을 함께 씁니다).
 set -euo pipefail
 cd "$(dirname "$0")/.."

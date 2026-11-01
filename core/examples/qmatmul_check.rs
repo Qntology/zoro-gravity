@@ -19,6 +19,7 @@ use candle_core::quantized::gguf_file::Content;
 use candle_core::quantized::{GgmlDType, QMatMul};
 use candle_core::{Device, Module, Tensor};
 use zorogravity_core::ai::gguf_model::load_active;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::{accel, verify};
 
 /// 양자화 행렬곱 결과의 허용 상대오차 (GPU 와 CPU 가 다른 순서로 더하는 차이 정도)
@@ -26,7 +27,7 @@ const TOL: f32 = 1e-2;
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let dir = args.next().unwrap_or_else(|| "models/zoro".into());
+    let dir = args.next().unwrap_or_else(|| model_dir("zoro").display().to_string());
     let dir = Path::new(&dir);
     let path = match args.next() {
         Some(tag) => {

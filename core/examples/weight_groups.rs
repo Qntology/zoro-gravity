@@ -8,6 +8,7 @@ use std::path::Path;
 use anyhow::Result;
 use candle_core::{DType, Device};
 use zorogravity_core::ai::gguf_model::load_active;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::residency::{estimate_group_bytes, Group};
 use zorogravity_core::ai::weights::WeightFile;
 
@@ -29,7 +30,7 @@ fn stats(file: &WeightFile, name: &str) -> Result<String> {
 }
 
 fn main() -> Result<()> {
-    let dir = std::env::args().nth(1).unwrap_or_else(|| "models/zoro".into());
+    let dir = std::env::args().nth(1).unwrap_or_else(|| model_dir("zoro").display().to_string());
     let active = load_active(Path::new(&dir))?;
     let file = WeightFile::open(&active.path)?;
     println!("{} ({}) · 텐서 {}개 · 파일 안 합계 {:.0} MB", active.path.display(), active.quant, file.tensor_count(), mb(file.total_bytes()));

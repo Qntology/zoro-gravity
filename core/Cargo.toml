@@ -22,6 +22,8 @@ sha2 = "0.10"
 thiserror = "2"
 tokenizers = { version = "0.23.2", default-features = false, features = ["onig"] }
 zeroize = "1"
+# 모델 폴더(AppData) 위치만 씁니다. 다운로드 코드는 빼고 넣습니다.
+zorogravity-models = { path = "../tools/model-settings", default-features = false }
 
 [features]
 # AMD GPU 기본 경로. Vulkan 은 SDK 없이 드라이버의 vulkan-1.dll 만 있으면 됩니다.

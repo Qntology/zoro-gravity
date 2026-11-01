@@ -1,4 +1,4 @@
-//! 선택된 양자화 모델 열기 (`models/<모델>/active.json` → GGUF).
+//! 선택된 양자화 모델 열기 (모델 폴더의 `<모델>/active.json` → GGUF).
 //!
 //! 텐서 데이터는 읽지 않고, 파일 머리(메타데이터)만 읽어 구조가 맞는지 확인합니다.
 //! 이 함수는 엔진이 쓸 파일 경로와 구조 값을 정하는 입구이고, 가중치는 `ai::residency` 가 단계별로 올립니다.
@@ -136,9 +136,9 @@ mod tests {
     #[test]
     #[ignore]
     fn real_active_models_open() -> Result<()> {
-        let zoro = load_active(Path::new("../models/zoro"))?;
+        let zoro = load_active(&zorogravity_models::model_dir("zoro"))?;
         assert_eq!((zoro.architecture.as_str(), zoro.block_count, zoro.embedding_length), ("zoro", 32, 2560));
-        let gocr = load_active(Path::new("../models/gocr"))?;
+        let gocr = load_active(&zorogravity_models::model_dir("gocr"))?;
         assert_eq!((gocr.architecture.as_str(), gocr.block_count, gocr.embedding_length), ("gocr", 16, 1536));
         Ok(())
     }

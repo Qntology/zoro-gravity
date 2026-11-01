@@ -4,11 +4,11 @@
 //!
 //! 정답 파일이 있으면 값 문자열이 읽은 글에 그대로 들어 있는 비율을 함께 보여 줍니다.
 
-use std::path::Path;
 
 use anyhow::Result;
 use zorogravity_core::ai::accel;
 use zorogravity_core::ai::document::DocumentReader;
+use zorogravity_core::ai::model_store::models_dir;
 use zorogravity_core::ai::residency::{Budget, Residency};
 
 fn squeeze(s: &str) -> String {
@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     let device = accel::select_device()?;
     println!("장치 {}", accel::backend_name(&device));
     let residency = Residency::shared(device.clone(), Budget::auto(&device));
-    let reader = DocumentReader::open(Path::new("models"), residency.clone())?;
+    let reader = DocumentReader::open(&models_dir(), residency.clone())?;
     let img = image::open(&args[0])?.to_rgb8();
     let r = reader.read(&img)?;
     println!(

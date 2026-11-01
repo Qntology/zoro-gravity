@@ -6,13 +6,16 @@
 //!
 //! KV 캐시와 캐시를 읽는 주의는 `ai::attention` 에 있습니다 (zoro 도 함께 씁니다).
 
+use std::sync::Arc;
+
 use anyhow::{anyhow, Result};
 use candle_core::{Device, Tensor};
 use candle_nn::ops::silu;
 
 use super::config::GocrConfig;
 pub use crate::ai::attention::{top1, AttnMode};
-use crate::ai::attention::{attend, rms_norm, LayerCache, StepMask};
+use crate::ai::attention::{rms_norm, LayerCache, StepMask};
+use crate::ai::kv_turbo::KvCodec;
 use crate::ai::residency::Loaded;
 
 /// 토큰의 (시간, 높이, 너비) 위치
@@ -31,7 +34,12 @@ pub struct PendingKv {
 
 impl KvCache {
     pub fn new(n_layers: usize) -> Self {
-        Self { layers: (0..n_layers).map(|_| LayerCache::default()).collect(), len: 0 }
+        Self::with_codec(n_layers, None)
+    }
+
+    /// 코덱이 있으면 키 · 값을 FP8 로 압축해 보관합니다.
+    pub fn with_codec(n_layers: usize, codec: Option<Arc<KvCodec>>) -> Self {
+        Self { layers: (0..n_layers).map(|_| LayerCache::new(codec.clone())).collect(), len: 0 }
     }
 
     /// 캐시에 들어간 토큰 수
@@ -149,7 +157,7 @@ impl Decoder<'_> {
         let q = rotate_pairs(&q, cos, sin)?;
         let k = rotate_pairs(&k, cos, sin)?;
         let kt = k.transpose(1, 2)?.contiguous()?;
-        let o = attend(&q, &kt, &v, &lc.segments(), mask, 1.0 / (d as f64).sqrt())?;
+        let o = lc.attend(&q, &kt, &v, mask, 1.0 / (d as f64).sqrt())?;
         let o = o.transpose(0, 1)?.contiguous()?.reshape((n, nh * d))?;
         Ok((w.linear(&p("attn_output.weight"), &o)?, (kt, v)))
     }
@@ -170,6 +178,7 @@ impl Decoder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::attention::attend;
     use crate::ai::residency::{Budget, Group, ModelId, ModelSpec, Phase, Residency};
     use crate::ai::verify::{det_normal, rel_err};
     use crate::ai::weights::testing::{write_gguf, TempDir};
@@ -343,6 +352,36 @@ mod tests {
         let refs: Vec<&Tensor> = got.iter().collect();
         let err = rel_err(&Tensor::cat(&refs, 0)?, &whole)?;
         assert!(err < 1e-4, "{err}");
+        Ok(())
+    }
+
+    /// FP8 로 압축한 캐시로 읽어도 원본 캐시와 가깝고, 앞부분만 넣어도 문맥이 어긋나지 않습니다.
+    #[test]
+    fn a_compressed_cache_reads_close_to_the_exact_one() -> Result<()> {
+        let m = mini();
+        let dec = m.dec();
+        let total = 40usize;
+        let x = m.embed(total, 31);
+        let read = |codec: Option<Arc<KvCodec>>| -> Result<Tensor> {
+            let mut cache = KvCache::with_codec(m.cfg.n_layers, codec);
+            let (_, kv) = dec.forward(&cache, &x.narrow(0, 0, 30)?.contiguous()?, &positions(0, 30), AttnMode::Causal)?;
+            cache.commit(&kv, 30)?;
+            // 세 토큰을 읽고 하나만 넣은 뒤, 한 토큰씩 읽습니다.
+            let (_, kv) = dec.forward(&cache, &x.narrow(0, 30, 3)?.contiguous()?, &positions(30, 3), AttnMode::Causal)?;
+            cache.commit(&kv, 1)?;
+            let mut h = None;
+            for at in 31..total {
+                let (y, kv) = dec.forward(&cache, &x.narrow(0, at, 1)?.contiguous()?, &positions(at, 1), AttnMode::Causal)?;
+                cache.commit(&kv, 1)?;
+                h = Some(y);
+            }
+            assert_eq!(cache.len(), total);
+            Ok(h.expect("마지막 은닉 상태"))
+        };
+        let exact = read(None)?;
+        let got = read(Some(Arc::new(KvCodec::new(m.cfg.head_dim, &Device::Cpu)?)))?;
+        let err = rel_err(&got, &exact)?;
+        assert!(err < 0.1, "{err}");
         Ok(())
     }
 

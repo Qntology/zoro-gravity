@@ -1,4 +1,4 @@
-//! 실제 모델 파일(`models/zoro`, `models/gocr`, `models/siglip2`)과 실제 장치로 하는 점검.
+//! 실제 모델 파일(모델 폴더의 `zoro`, `gocr`, `siglip2`)과 실제 장치로 하는 점검.
 //! 모델 파일과 GPU 가 있어야 하고 오래 걸려서 기본 실행에서는 건너뜁니다.
 //!
 //!   cargo test -p zorogravity-core --test real_models -- --ignored --nocapture --test-threads 1
@@ -6,7 +6,6 @@
 //!
 //! 여러 모델을 한 장치에 올리는 점검이 있어서 병렬로 돌리면 안 됩니다 (`--test-threads 1`).
 
-use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -22,6 +21,7 @@ use zorogravity_core::state_machine::{CaseOutcome, Engine};
 use zorogravity_core::verdict::Verdict;
 use zorogravity_core::ai::document::DocumentReader;
 use zorogravity_core::ai::jev_head::JevHead;
+use zorogravity_core::ai::model_store::{model_dir, models_dir};
 use zorogravity_core::ai::ocr::{LanguageDecoder, LanguageWeights, OcrEngine, PhaseCtx, VisionEncoder};
 use zorogravity_core::ai::pointer::{PointerModel, PointerPrompt};
 use zorogravity_core::ai::residency::{Action, Budget, DeviceMemoryShort, Group, Loaded, ModelId, Phase, Residency, SharedResidency};
@@ -37,9 +37,6 @@ use zorogravity_core::decision::{DecisionModel, DecisionTask, Fact};
 use zorogravity_core::state_machine::gate3_substantive::OPTIONS;
 use zorogravity_core::verdict::ALL;
 
-const ZORO: &str = "../models/zoro";
-const GOCR: &str = "../models/gocr";
-const SIGLIP2: &str = "../models/siglip2";
 /// `python scripts/gen_sample_forms.py out/forms_test 4 1234` 로 만든 합성 서식
 const SAMPLE_FORM: &str = "../out/forms_test/rent_application_0.jpg";
 
@@ -67,8 +64,8 @@ fn pointer_model(res: SharedResidency, mode: StreamMode) -> (PointerModel, Arc<Z
             self.0.encode(p)
         }
     }
-    let backbone = Arc::new(ZoroBackbone::open_with(Path::new(ZORO), res, mode).expect("zoro 열기"));
-    let head = JevHead::from_safetensors(&Path::new(ZORO).join("jev_head.safetensors")).expect("jev_head");
+    let backbone = Arc::new(ZoroBackbone::open_with(&model_dir("zoro"), res, mode).expect("zoro 열기"));
+    let head = JevHead::from_safetensors(&model_dir("zoro").join("jev_head.safetensors")).expect("jev_head");
     (PointerModel::new(Box::new(Shared(Arc::clone(&backbone))), head), backbone)
 }
 
@@ -76,7 +73,7 @@ fn pointer_model(res: SharedResidency, mode: StreamMode) -> (PointerModel, Arc<Z
 #[ignore]
 fn zoro_continues_a_sentence_sensibly() {
     // 구조에 대한 가정(정규화 방식 · 출력 게이트 · RoPE · 선형 주의)이 맞으면 다음 토큰이 말이 됩니다.
-    let backbone = ZoroBackbone::open(Path::new(ZORO), residency()).expect("zoro 열기");
+    let backbone = ZoroBackbone::open(&model_dir("zoro"), residency()).expect("zoro 열기");
     let enc = backbone.tokenizer().encode("The capital of France is").unwrap();
     let hidden = backbone.model().hidden_states(&enc.ids).unwrap();
     let last = hidden.narrow(0, enc.ids.len() - 1, 1).unwrap().to_device(&Device::Cpu).unwrap();
@@ -95,7 +92,7 @@ fn zoro_continues_a_sentence_sensibly() {
 #[test]
 #[ignore]
 fn prompt_positions_land_on_the_quote_closing_every_option_code() {
-    let backbone = ZoroBackbone::open(Path::new(ZORO), residency()).expect("zoro 열기");
+    let backbone = ZoroBackbone::open(&model_dir("zoro"), residency()).expect("zoro 열기");
     // 20개 선택지를 모두 넣은 질문
     let task = DecisionTask { title: "전체 선택지".into(), facts: vec![Fact::new("메모", "한글 설명 ✓")], options: ALL.to_vec() };
     let prompt = PointerPrompt::render(&task);
@@ -246,7 +243,7 @@ fn zoro_and_the_ocr_phases_take_turns_on_one_device() {
     let task = gate3_task("있음 (1홉)", "아니오");
     let before = model.probabilities(&task).unwrap();
 
-    let ocr = OcrEngine::open(Path::new(GOCR), res.clone(), VisionProbe, LanguageProbe).expect("gocr 열기");
+    let ocr = OcrEngine::open(&model_dir("gocr"), res.clone(), VisionProbe, LanguageProbe).expect("gocr 열기");
     let out = ocr.recognize(&[(), ()]).unwrap();
     println!("비전 {:.0} MB · 언어 {:.0} MB", out[0].0 as f64 / 1048576.0, out[0].1 as f64 / 1048576.0);
     assert_eq!(out.len(), 2);
@@ -280,7 +277,7 @@ const SALT: &[u8] = b"test-salt-not-for-production";
 #[ignore]
 fn siglip2_finds_the_document_and_keeps_each_tower_apart() -> Result<()> {
     let res = residency();
-    let model = Siglip2::open(Path::new(SIGLIP2), res.clone())?;
+    let model = Siglip2::open(&model_dir("siglip2"), res.clone())?;
     let img = image::open(SAMPLE_FORM)?.to_rgb8();
     let input = siglip2_prepare(&img, model.config().patch, 256)?;
     assert!(input.n_patches() <= 256);
@@ -298,7 +295,7 @@ fn siglip2_finds_the_document_and_keeps_each_tower_apart() -> Result<()> {
 #[ignore]
 fn a_page_is_cropped_and_read_with_one_model_at_a_time() -> Result<()> {
     let res = residency();
-    let reader = DocumentReader::open(Path::new("../models"), res.clone())?;
+    let reader = DocumentReader::open(&models_dir(), res.clone())?;
     let img = image::open(SAMPLE_FORM)?.to_rgb8();
     let page = reader.read(&img)?;
     println!("조각 {} · 면적 {:.2} · OCR {:.1} s", page.crops.len(), page.plan.kept_area(), page.timings.ocr_ms / 1e3);
@@ -333,7 +330,7 @@ fn a_page_is_cropped_and_read_with_one_model_at_a_time() -> Result<()> {
 fn pages_read_together_match_pages_read_one_by_one() -> Result<()> {
     // 격자가 같은 조각은 묶이고, 모델은 묶음 전체에서 단계마다 한 번만 올라옵니다.
     let res = residency();
-    let reader = DocumentReader::open(Path::new("../models"), res.clone())?;
+    let reader = DocumentReader::open(&models_dir(), res.clone())?;
     let pages: Vec<image::RgbImage> = [SAMPLE_FORM, "../out/forms_test/rent_application_1.jpg", "../out/forms_test/bankbook_0.jpg"]
         .iter()
         .map(|p| Ok(image::open(p)?.to_rgb8()))
@@ -373,7 +370,7 @@ fn clean_welfare(id: &str, relations: Vec<Relation>) -> CaseFile {
 #[ignore]
 fn the_zoro_vision_tower_lives_in_its_own_file() -> Result<()> {
     let res = residency();
-    let zoro = ZoroBackbone::open(Path::new(ZORO), res.clone())?;
+    let zoro = ZoroBackbone::open(&model_dir("zoro"), res.clone())?;
     let spec = zoro.model().spec();
     assert!(spec.file.names_with_prefix("model.visual.").is_empty(), "텍스트 파일에 비전 텐서가 없어야 합니다");
     let mmproj = spec.mmproj.as_ref().expect("mmproj 파일");
@@ -388,7 +385,7 @@ fn the_zoro_vision_tower_lives_in_its_own_file() -> Result<()> {
 #[ignore]
 fn speculation_writes_the_same_text_with_fewer_reads() -> Result<()> {
     let res = residency();
-    let zoro = ZoroBackbone::open(Path::new(ZORO), res.clone())?;
+    let zoro = ZoroBackbone::open(&model_dir("zoro"), res.clone())?;
     let plan = Speculation { masks: 2, lookup: 2, width: 3 };
     let file = &zoro.model().spec().file;
     let diffusion = BlockDiffusion::from_file(file)?.expect("텍스트 GGUF 에 블록 디퓨전 설정이 있어야 합니다");
@@ -416,7 +413,7 @@ fn speculation_writes_the_same_text_with_fewer_reads() -> Result<()> {
 #[test]
 #[ignore]
 fn zoro_writes_a_checked_summary_and_the_same_words_come_out_twice() -> Result<()> {
-    let zoro = ZoroBackbone::open(Path::new(ZORO), residency())?;
+    let zoro = ZoroBackbone::open(&model_dir("zoro"), residency())?;
     let text = "재산세 고지서를 받았는데 작년보다 12만 원이 더 나왔습니다. 면적이 잘못 적힌 것 같습니다. 고지 금액을 확인해 주십시오.";
     let s = summarize_grievance(&zoro, text)?;
     println!("{s:?}");
@@ -433,7 +430,7 @@ fn zoro_writes_a_checked_summary_and_the_same_words_come_out_twice() -> Result<(
 #[test]
 #[ignore]
 fn the_engine_with_the_real_model_never_finalizes_a_violation() {
-    let model = zorogravity_core::ai::zoro::open_decision_model(Path::new(ZORO), residency()).expect("판단 모델");
+    let model = zorogravity_core::ai::zoro::open_decision_model(&model_dir("zoro"), residency()).expect("판단 모델");
     let mut e = Engine::new(SALT, AutomationPolicy::default(), Some(Box::new(model)));
     let now = Utc.with_ymd_and_hms(2026, 10, 31, 9, 0, 0).unwrap();
     e.enable_automation("officer-17", "지침 제2조 (테스트용 법령 근거)", now).unwrap();

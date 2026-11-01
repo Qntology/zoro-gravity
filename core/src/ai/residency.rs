@@ -44,6 +44,11 @@ fn env_mb(key: &str) -> Option<u64> {
     std::env::var(key).ok().and_then(|v| v.trim().parse::<u64>().ok())
 }
 
+/// 가중치와 KV 캐시를 잡은 뒤에도 장치에 남겨 둘 여유
+pub fn headroom_bytes() -> u64 {
+    env_mb(HEADROOM_ENV).unwrap_or(DEFAULT_HEADROOM_MB) << 20
+}
+
 fn allow_host_weights() -> bool {
     std::env::var(ALLOW_HOST_ENV).map(|v| v == "1").unwrap_or(false)
 }
@@ -567,7 +572,7 @@ impl Residency {
         let on_device = estimate_device_heap_bytes(spec.file_of(group), group, &self.device)?;
         let (free_before, buffers_before) = (self.free_bytes(), self.tensor_buffer_bytes());
         if !allow_host_weights() {
-            check_headroom(group, on_device, free_before, env_mb(HEADROOM_ENV).unwrap_or(DEFAULT_HEADROOM_MB) << 20)?;
+            check_headroom(group, on_device, free_before, headroom_bytes())?;
         }
         let t0 = Instant::now();
         let loaded = load_group(spec, group, &self.device)?;

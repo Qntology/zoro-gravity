@@ -9,6 +9,7 @@ use std::path::Path;
 use anyhow::Result;
 use zorogravity_core::ai::accel;
 use zorogravity_core::ai::gocr::{self, Strategy};
+use zorogravity_core::ai::model_store::models_dir;
 use zorogravity_core::ai::ocr::{language_phase, vision_phase};
 use zorogravity_core::ai::residency::{Action, Budget, Phase, Residency};
 use zorogravity_core::ai::siglip2::Siglip2;
@@ -17,7 +18,7 @@ use zorogravity_core::ai::zoro::ZoroBackbone;
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let rounds: usize = args.first().map(|s| s.parse()).transpose()?.unwrap_or(4);
-    let models = args.get(1).cloned().unwrap_or_else(|| "models".into());
+    let models = args.get(1).cloned().unwrap_or_else(|| models_dir().display().to_string());
     let root = Path::new(&models);
 
     let device = accel::select_device()?;

@@ -3,9 +3,10 @@
 공무원 민원 심사(5-Gate)를 Zoro-1 판단 헤드로 돕는 로컬 엔진입니다. 원본 명세는 `zorogravity.txt` 입니다.
 
 - **AI 엔진**: [candle](https://github.com/huggingface/candle) (Rust). AMD GPU 는 [candle-rocm-vulkan](https://github.com/Qntology/candle-rocm-vulkan) 포크로 ROCm/HIP 과 Vulkan 에 연결합니다.
-- **모델**: `models/siglip2` (크롭), `models/gocr` (문서 인식), `models/zoro` (판단). 모두 GGUF 로 바꿔 쓰고, 지금은 **q8** 입니다 (비전 가중치는 BF16). 다른 모델(Qwen3.5 등)은 쓰지 않습니다. 명세의 `indra-ocr` 은 라이선스 문제로 쓰지 않습니다.
+- **모델**: 앱 데이터 폴더의 `models/siglip2` (크롭), `models/gocr` (문서 인식), `models/zoro` (판단). 모두 GGUF 로 바꿔 쓰고, 지금은 **q8** 입니다 (비전 가중치는 BF16). 폴더와 내려받기는 아래 "모델 폴더와 다운로드"에 있습니다. 다른 모델(Qwen3.5 등)은 쓰지 않습니다. 명세의 `indra-ocr` 은 라이선스 문제로 쓰지 않습니다.
 - **문서 읽기**: 기울기 보정 → 잉크 분석으로 조각 나누기 → SigLIP2 로 제목 · 표 · 서명 · 안내문 판정 → gocr 비전 → gocr 언어. [docs/document-crop.md](docs/document-crop.md)
 - **zoro 백본**: 텍스트 순전파를 직접 구현했습니다 (`core/src/ai/zoro`). 실제 가중치로 "The capital of France is" → `" Paris"` 를 확인했습니다. [docs/zoro-backbone.md](docs/zoro-backbone.md)
+- **KV 캐시 FP8**: 원본 KV 가 장치 메모리에 들어가지 않으면 벡터별 FP8 로 압축합니다 (F32 의 1/4). ROCm · Vulkan · CUDA 모두 포크의 커널을 쓰고, 정책은 logis-center 와 같습니다. [docs/gpu-backends.md](docs/gpu-backends.md) 3.7절
 - **가중치 관리**: 모델은 **한 번에 하나**, 모델 안에서도 **지금 단계가 쓰는 묶음만** 올리고 단계가 바뀌면 내립니다 (크롭은 SigLIP2 비전 타워만, OCR 은 비전 → 비전을 내림 → 언어, zoro 는 텍스트 블록만). [docs/weight-residency.md](docs/weight-residency.md)
 - **최적화 방식**: [logis-center](https://github.com/Qntology/logis-center) 는 방식만 참고했습니다. 장치 선택 순서(ROCm → Vulkan → CPU), 커널 자가 검증, 양자화 가중치의 GPU 실행, 쓰는 타워만 올리고 즉시 반환하는 단계 전환입니다. 모델 코드는 가져오지 않았습니다.
 - **자동화 모드**: 기본은 보조 모드입니다. 자동화 모드는 승인과 법령 근거가 있어야 켜지고, 불리한 처분은 항상 공무원이 확정합니다. 설계 전체는 [docs/automation-mode.md](docs/automation-mode.md).
@@ -14,7 +15,7 @@
 
 | 영역 | 상태 |
 | --- | --- |
-| 5-Gate 규칙 엔진 (Gate 0~5) · 엔드투엔드 (명세 사례) | 구현 · 단위 테스트 256개 + 엔드투엔드 23개 통과 (모델 파일이 필요한 점검은 `--ignored`, `real_models` 14개) |
+| 5-Gate 규칙 엔진 (Gate 0~5) · 엔드투엔드 (명세 사례) | 구현 · 단위 테스트 267개 + 엔드투엔드 23개 통과 (모델 파일이 필요한 점검은 `--ignored`, `real_models` 14개) |
 | 자동화 정책 · 감사 로그 · 비식별 해시 | 구현 |
 | 관계망 멀티홉 · 동명이인 판별 (사건 범위) | 구현 |
 | 판단 모델 인터페이스 (`DecisionModel`) | 구현. 게이트가 식별 정보 없는 사실과 선택지로 질문을 만듭니다 |
@@ -28,6 +29,8 @@
 | 모델 양자화 (GGUF Q4 · Q8, 비전 BF16) | 구현 · gocr · zoro 모두 q8 선택. [docs/model-quantization.md](docs/model-quantization.md) |
 | 장치 선택 · 커널 자가 검증 (ROCm · Vulkan · CPU) | 구현 · 실측은 아래 |
 | HWP 문서 생성 (@rhwp) | 미구현 (본문 텍스트만) |
+| 모델 다운로드 · 삭제 (AppData, 진행률 표시) | 구현 (`tools/model-settings`). 앱 본체가 없어서 설정 화면은 작은 로컬 서버로 띄웁니다 |
+| KV 캐시 FP8 (ROCm · Vulkan · CUDA) | 구현 (`ai::kv_turbo`). CPU 단위 테스트만 통과했고 **GPU 에서는 아직 돌려 보지 않았습니다** |
 | Tauri 키오스크 · 공무원 콘솔 | 미구현 |
 | 영속 저장 (SQLite) | 미구현 (메모리) |
 | 사건 간 관계망 누적 | 미구현 (법무 검토 필요) |
@@ -42,6 +45,8 @@
 | Linux | `run/linux/cuda.sh` | `run/linux/rocm.sh` | `run/linux/vulkan.sh` |
 | macOS | 지원 안 됨 | 지원 안 됨 | `run/macos/vulkan.command` |
 
+모델 관리 화면은 `run\windows\models.bat` · `run/linux/models.sh` · `run/macos/models.command` 입니다.
+
 ```bat
 :: 기본은 판단 경로 전체를 도는 decide_probe 입니다. 예제 이름과 인자를 주면 그 예제를 돌립니다.
 run\windows\vulkan.bat
@@ -49,10 +54,37 @@ run\windows\rocm.bat read_page 이미지.jpg
 ```
 
 - 결과물은 `target-cuda` · `target-rocm` · `target` 의 `release\examples` 에 생깁니다. 아직 앱 본체가 없어서 실행 대상은 `core/examples` 의 예제입니다.
-- 공통으로 이 저장소 옆에 `candle-rocm-vulkan`, 이 안에 `models/` 가 있어야 합니다.
+- 공통으로 이 저장소 옆에 `candle-rocm-vulkan` 이 있어야 하고, 모델은 앱 데이터 폴더에 받아 두어야 합니다 (아래 "모델 폴더와 다운로드").
 - **CUDA** 는 CUDA Toolkit(`nvcc`)이, **ROCm** 은 HIP SDK 가, **Vulkan** 은 GPU 드라이버가 있어야 합니다. 맥의 Vulkan 은 `brew install vulkan-loader molten-vk` 로 설치합니다.
 - 맥의 `cuda.command` · `rocm.command` 는 안내만 하고 끝납니다. macOS 용 ROCm 은 없고 CUDA 는 10.2 를 끝으로 지원이 끊겼습니다.
 - 이 PC 에서 돌려 본 것은 Windows 의 Vulkan · ROCm 입니다. CUDA, 리눅스, 맥은 **실행해 보지 않았습니다**. 특히 맥의 Vulkan(MoltenVK)은 이 프로젝트에서 한 번도 측정한 적이 없습니다.
+
+## 모델 폴더와 다운로드
+
+모델은 저장소가 아니라 OS 의 앱 데이터 폴더에 둡니다 (logis-center 와 같은 방식). 예제와 테스트도 이 폴더를 씁니다.
+
+| OS | 위치 |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\zorogravity\models` (`C:\Users\<사용자>\AppData\Local\zorogravity\models`) |
+| macOS | `~/Library/Application Support/zorogravity/models` |
+| Linux | `$XDG_DATA_HOME/zorogravity/models` (없으면 `~/.local/share/zorogravity/models`) |
+
+`ZOROGRAVITY_MODELS_DIR` 로 폴더를 바꿀 수 있습니다.
+
+```bat
+:: 모델 관리 화면을 엽니다. 진행률 막대로 내려받고, 모델별 · 전체 삭제를 합니다.
+cargo run --release -p zorogravity-models
+```
+
+| 모델 | 내려받는 곳 | 크기 |
+| --- | --- | --- |
+| `zoro` | [Qntology/zoro-1-gguf](https://huggingface.co/Qntology/zoro-1-gguf) | 5.2 GB |
+| `gocr` | [Qntology/GravityOCR-KO-gguf](https://huggingface.co/Qntology/GravityOCR-KO-gguf) | 1.6 GB |
+| `siglip2` | 없음. 직접 변환해서 `models/siglip2` 에 넣습니다 ([docs/document-crop.md](docs/document-crop.md)) | - |
+
+- `.tmp` 로 받아서 크기가 맞을 때만 이름을 바꾸므로 받다 만 파일이 모델로 열리지 않습니다. 끊겨도 다시 누르면 이어 받습니다.
+- 망이 분리된 곳은 `ZOROGRAVITY_MODEL_MIRROR` 에 같은 경로 구조의 미러 주소를 줍니다.
+- 코어 엔진에는 네트워크 코드가 없습니다. 폴더 위치만 `zorogravity-models` 에서 가져옵니다.
 
 ## 빌드와 실행
 
@@ -65,10 +97,10 @@ cargo test --workspace
 cargo test -p zorogravity-core --test real_models -- --ignored --nocapture --test-threads 1
 
 :: 점검 예제
-cargo run -p zorogravity-core --example zoro_probe -- models\zoro "The capital of France is" 6   :: 다음 토큰
+cargo run -p zorogravity-core --example zoro_probe -- %LOCALAPPDATA%\zorogravity\models\zoro "The capital of France is" 6   :: 다음 토큰
 cargo run -p zorogravity-core --example decide_probe                                             :: 판단 경로 전체
 cargo run -p zorogravity-core --example residency_check                                          :: 올리고 내리기 + VRAM 반환
-cargo run -p zorogravity-core --example qmatmul_check -- models\zoro                             :: 양자화 행렬곱
+cargo run -p zorogravity-core --example qmatmul_check -- %LOCALAPPDATA%\zorogravity\models\zoro                             :: 양자화 행렬곱
 cargo run -p zorogravity-core --example read_page -- 이미지.jpg                                   :: 페이지 끝까지 읽기
 
 :: ROCm/HIP (HIP SDK 7.2 필요). MSVC 14.44 툴셋으로 빌드하고, 기본 빌드 캐시와 섞이지 않게 별도 폴더를 씁니다.
@@ -80,17 +112,17 @@ target-rocm\debug\examples\decide_probe.exe
 
 :: 모델 변환 (models 폴더의 safetensors → GGUF)
 cargo build -p zorogravity-gguf
-target\debug\zorogravity-gguf.exe auto models\zoro
+target\debug\zorogravity-gguf.exe auto %LOCALAPPDATA%\zorogravity\models\zoro
 ```
 
 장치 선택은 `ZOROGRAVITY_DEVICE=auto|cuda|rocm|vulkan|cpu` 입니다. 기본 `auto` 는 CUDA → ROCm → Vulkan → CPU 순서로 처음 열리는 장치를 씁니다.
-메모리 관련 환경 변수(`ZOROGRAVITY_VRAM_BUDGET_MB`, `ZOROGRAVITY_ZORO_STREAM_BLOCKS` 등)는 [docs/weight-residency.md](docs/weight-residency.md) 에 있습니다.
+메모리 관련 환경 변수(`ZOROGRAVITY_VRAM_BUDGET_MB`, `ZOROGRAVITY_ZORO_STREAM_BLOCKS`, `ZOROGRAVITY_KV_PRECISION` 등)는 [docs/weight-residency.md](docs/weight-residency.md) 에 있습니다.
 
 판단 모델을 엔진에 꽂는 방법:
 
 ```rust
 let residency = Residency::shared(device.clone(), Budget::auto(&device));   // OCR 과 공유해야 "한 번에 한 모델"이 지켜집니다
-let model = zorogravity_core::ai::zoro::open_decision_model(Path::new("models/zoro"), residency)?;
+let model = zorogravity_core::ai::zoro::open_decision_model(&model_dir("zoro"), residency)?;
 let engine = Engine::new(salt, AutomationPolicy::default(), Some(Box::new(model)));
 ```
 
@@ -136,7 +168,7 @@ zorogravity/
 │   ├── src/
 │   │   ├── ai/             accel(장치 선택) · verify(커널 자가 검증) · weights(GGUF 에서 필요한 텐서만 읽기)
 │   │   │                   residency(가중치 상주 관리) · ocr(비전→언어 단계 전환) · jev_head · pointer(프로토콜)
-│   │   │                   attention(공용 주의 연산) · speculative(자기 추측 디코딩) · tokenizer · gguf_model · document(문서 묶음 읽기)
+│   │   │                   attention(공용 주의 연산) · kv_turbo(KV 캐시 FP8) · speculative(자기 추측 디코딩) · tokenizer · gguf_model · document(문서 묶음 읽기)
 │   │   │                   zoro/(백본 · 글쓰기) · gocr/(문서 인식) · siglip2/(크롭: 타워, 잉크 분석, 패치 경쟁, 조각 계획)
 │   │   ├── state_machine/  gate0_router · gate1_formal · gate2_consistency
 │   │   │                   gate3_substantive · gate4_5_finalize · pipeline
@@ -156,7 +188,7 @@ zorogravity/
 │   │                       automation_eval · jev_format_search · write_eval
 │   └── tests/              governance.rs (명세 사례 엔드투엔드) · real_models.rs (실제 모델 점검, --ignored)
 ├── tools/gguf-convert/     zorogravity-gguf: safetensors → GGUF (Q4_K · Q8_0, 비전 BF16), 정밀도 점검, jev_head 변환
-├── models/                 모델 파일 (저장소 밖, .gitignore). gocr · zoro 의 GGUF 와 active.json
+├── tools/model-settings/   zorogravity-models: 모델 폴더(AppData) · 다운로드 · 삭제 · 모델 관리 화면
 ├── run/                    백엔드별 실행 스크립트 (windows · linux · macos)
 ├── scripts/                ROCm · CUDA 빌드 환경, 실행 스크립트 공용 부분, 평가 · 학습 스크립트
 └── docs/

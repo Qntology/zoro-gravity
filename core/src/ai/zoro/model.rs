@@ -23,8 +23,9 @@ use candle_nn::ops::{sigmoid, silu};
 
 use super::config::{LayerKind, ZoroConfig};
 use super::ops::{gated_delta_state, gated_delta_state_on_host, gated_delta_step, gated_delta_step_on_host, gdn_config, gdn_on_device, GdnState, GdnWeights};
-use crate::ai::attention::{attend, causal_attention, rms_norm, top1, AttnMode, Causal, LayerCache, Rope, StepMask, ATTN_QUERY_CHUNK};
-use crate::ai::residency::{estimate_group_bytes, Budget, Group, Loaded, ModelId, ModelSpec, Phase, Prepare, SharedResidency};
+use crate::ai::attention::{causal_attention, rms_norm, top1, AttnMode, Causal, LayerCache, Rope, StepMask, ATTN_QUERY_CHUNK};
+use crate::ai::kv_turbo::{self, KvCodec, KvShape};
+use crate::ai::residency::{estimate_group_bytes, headroom_bytes, Budget, Group, Loaded, ModelId, ModelSpec, Phase, Prepare, SharedResidency};
 use crate::ai::speculative::{decode_stream, BlockDiffusion, Speculation, StreamModel, StreamOptions};
 use crate::ai::weights::WeightFile;
 
@@ -468,13 +469,25 @@ impl ZoroModel {
     }
 
     pub fn new_state(&self) -> ZoroState {
+        self.new_state_with(None)
+    }
+
+    /// 코덱이 있으면 전체 주의의 키 · 값을 FP8 로 압축해 보관합니다. 선형 주의의 순환 상태는 그대로입니다.
+    pub fn new_state_with(&self, codec: Option<Arc<KvCodec>>) -> ZoroState {
         let layers = (0..self.cfg.n_layers)
             .map(|i| match self.cfg.kind(i) {
                 LayerKind::LinearAttention => LayerState::Linear(None),
-                LayerKind::FullAttention => LayerState::Full(LayerCache::default()),
+                LayerKind::FullAttention => LayerState::Full(LayerCache::new(codec.clone())),
             })
             .collect();
         ZoroState { layers, len: 0 }
+    }
+
+    /// `tokens` 토큰을 쓰는 동안의 KV 크기
+    fn kv_shape(&self, tokens: usize) -> KvShape {
+        let c = &self.cfg;
+        let layers = c.layer_kinds.iter().filter(|k| **k == LayerKind::FullAttention).count();
+        KvShape { layers, tokens, q_heads: c.n_heads, kv_heads: c.n_kv_heads, head_dim: c.head_dim }
     }
 
     fn check_ids(&self, ids: &[u32]) -> Result<()> {
@@ -571,9 +584,10 @@ impl ZoroModel {
         let device = res.device().clone();
         let loaded = res.enter(&self.spec, &self.generation_phase())?;
         let (blocks, output, table) = (&loaded[0], &loaded[1], &loaded[2]);
+        let codec = kv_turbo::plan(&self.kv_shape(prompt.len() + opts.max_tokens), &device, res.free_bytes(), headroom_bytes())?;
 
         let t = Instant::now();
-        let mut state = self.new_state();
+        let mut state = self.new_state_with(codec);
         let h = self.advance(blocks, output, &device, &mut state, prompt)?;
         let first = next_tokens(table, &h.narrow(0, h.dim(0)? - 1, 1)?)?[0];
         let prefill_ms = t.elapsed().as_secs_f64() * 1e3;
@@ -640,7 +654,7 @@ impl ZoroModel {
             (None, Masks::Whole(causal)) => (causal_attention(&q, &k, &v, scale, causal)?, None),
             (Some(cache), Masks::Stepping(mask)) => {
                 let kt = k.transpose(1, 2)?.contiguous()?;
-                (attend(&q, &kt, &v, &cache.segments(), mask, scale)?, Some(PendingLayer::Full { kt, v }))
+                (cache.attend(&q, &kt, &v, mask, scale)?, Some(PendingLayer::Full { kt, v }))
             }
             _ => bail!("층 {i} 의 상태와 마스크가 맞지 않습니다"),
         };
@@ -1052,6 +1066,28 @@ mod tests {
         let got = Tensor::cat(&parts.iter().collect::<Vec<_>>(), 0).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
         let err = rel(&got, &mini.forward(&IDS));
         assert!(err < 1e-4, "기준 구현과의 상대오차 {err}");
+    }
+
+    #[test]
+    fn a_compressed_state_reads_close_to_the_exact_one_and_keeps_part_of_a_read() {
+        let dir = TempDir::new("zm-fp8");
+        let res = cpu_residency();
+        let (_mini, m) = model(&dir, false, StreamMode::Resident, res.clone());
+        let w = weights(&m, &res);
+        let cpu = Device::Cpu;
+        let d = m.config().head_dim;
+        let read = |codec: Option<Arc<KvCodec>>| {
+            let mut state = m.new_state_with(codec);
+            m.advance(&w[0], &w[1], &cpu, &mut state, &IDS[..5]).unwrap();
+            let pending = m.read(&w[0], &w[1], &cpu, &state, &IDS[5..9], true).unwrap().1;
+            m.commit(&w[0], &cpu, &mut state, pending, 2).unwrap();
+            assert_eq!(state.len(), 7);
+            next_after(&m, &w, &mut state, 3)
+        };
+        let exact = read(None);
+        let got = read(Some(Arc::new(KvCodec::new(d, &cpu).unwrap())));
+        assert_ne!(exact, got, "압축한 키 · 값을 읽어야 합니다");
+        assert!(rel(&got, &exact) < 0.1, "{}", rel(&got, &exact));
     }
 
     /// 표로 쓰는 출력 투영까지 포함한 다음 토큰

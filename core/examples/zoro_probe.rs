@@ -16,6 +16,7 @@ use std::time::Instant;
 use anyhow::Result;
 use candle_core::quantized::QMatMul;
 use candle_core::{Device, Module};
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::residency::{Budget, Residency};
 use zorogravity_core::ai::zoro::ZoroBackbone;
 use zorogravity_core::ai::accel;
@@ -26,7 +27,7 @@ fn mb(bytes: u64) -> f64 {
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
-    let dir = args.next().unwrap_or_else(|| "models/zoro".into());
+    let dir = args.next().unwrap_or_else(|| model_dir("zoro").display().to_string());
     let prompt = args.next().unwrap_or_else(|| "The capital of France is".into());
     let steps: usize = args.next().map(|s| s.parse()).transpose()?.unwrap_or(6);
 

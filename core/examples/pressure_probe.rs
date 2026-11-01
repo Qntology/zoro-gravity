@@ -5,12 +5,12 @@
 //! (방어 없이 실제로 겪은 일: 같은 GPU 에서 zoro 프로세스 둘을 동시에 돌렸더니 확률이 실행마다 달랐습니다.)
 //!
 //!   set ZOROGRAVITY_ALLOW_HOST_WEIGHTS=1 && cargo run -p zorogravity-core --example pressure_probe
-use std::path::Path;
 
 use anyhow::Result;
 use candle_core::quantized::ggml_file::qtensor_from_ggml;
 use candle_core::quantized::{GgmlDType, QTensor};
 use zorogravity_core::ai::accel;
+use zorogravity_core::ai::model_store::model_dir;
 use zorogravity_core::ai::residency::{Budget, Residency};
 use zorogravity_core::ai::zoro::open_decision_model;
 use zorogravity_core::decision::{DecisionModel, DecisionTask, Fact};
@@ -19,7 +19,7 @@ use zorogravity_core::state_machine::gate3_substantive::OPTIONS;
 fn main() -> Result<()> {
     let device = accel::select_device()?;
     let res = Residency::shared(device.clone(), Budget::unlimited());
-    let model = open_decision_model(Path::new("models/zoro"), res.clone())?;
+    let model = open_decision_model(&model_dir("zoro"), res.clone())?;
     let task = DecisionTask {
         title: "임차 요건 심사".into(),
         facts: vec![

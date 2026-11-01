@@ -26,8 +26,9 @@ use self::config::GocrConfig;
 use self::image::PreparedImage;
 use self::text::{top1, AttnMode, Decoder, KvCache, PendingKv, Pos};
 use super::gguf_model::load_active;
+use super::kv_turbo::{self, KvShape};
 use super::ocr::{LanguageDecoder, LanguageWeights, OcrEngine, PhaseCtx, VisionEncoder};
-use super::residency::{Loaded, SharedResidency};
+use super::residency::{headroom_bytes, Loaded, SharedResidency};
 use super::speculative::{decode, BlockDiffusion, BlockModel, DecodeOptions};
 use super::tokenizer::ModelTokenizer;
 use super::weights::WeightFile;
@@ -193,11 +194,13 @@ impl GocrLanguage {
         Ok(Prefill { embeds, pos, next_pos: after + tail.len() as u32 })
     }
 
-    /// 프리필을 계산하고 디코딩을 시작합니다.
-    fn read(&self, dec: &Decoder<'_>, f: &VisionFeatures, device: &Device) -> Result<OcrOutput> {
+    /// 프리필을 계산하고 디코딩을 시작합니다. `free` 는 가중치를 올린 뒤의 장치 여유 메모리입니다.
+    fn read(&self, dec: &Decoder<'_>, f: &VisionFeatures, device: &Device, free: Option<u64>) -> Result<OcrOutput> {
         let t = Instant::now();
         let p = self.prefill(f, device)?;
-        let mut cache = KvCache::new(self.cfg.n_layers);
+        let c = &self.cfg;
+        let shape = KvShape { layers: c.n_layers, tokens: p.pos.len() + self.max_tokens, q_heads: c.n_heads, kv_heads: c.n_kv_heads, head_dim: c.head_dim };
+        let mut cache = KvCache::with_codec(c.n_layers, kv_turbo::plan(&shape, device, free, headroom_bytes())?);
         let (h, kv) = dec.forward(&cache, &p.embeds, &p.pos, AttnMode::Causal)?;
         cache.commit(&kv, p.pos.len())?;
         let first = top1(&dec.last_logits(&h)?);
@@ -287,7 +290,7 @@ impl LanguageDecoder for GocrLanguage {
 
     fn decode(&self, ctx: &PhaseCtx<'_>, weights: &LanguageWeights, features: VisionFeatures) -> Result<OcrOutput> {
         let dec = Decoder { cfg: &self.cfg, blocks: &weights.blocks, output: &weights.output };
-        self.read(&dec, &features, ctx.residency.device())
+        self.read(&dec, &features, ctx.residency.device(), ctx.residency.free_bytes())
     }
 }
 
