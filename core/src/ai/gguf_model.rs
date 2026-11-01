@@ -43,7 +43,7 @@ pub fn load_active(model_dir: &Path) -> Result<ActiveModel> {
     let record_path = model_dir.join("active.json");
     let record: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(&record_path)
-            .with_context(|| format!("선택 기록을 읽을 수 없습니다: {}", record_path.display()))?,
+            .with_context(|| format!("선택 기록을 읽을 수 없습니다: {}. 모델을 받지 않았다면 run\\windows\\models.bat (cargo run --release -p zorogravity-models) 로 내려받으세요", record_path.display()))?,
     )?;
     let file = record["file"]
         .as_str()
