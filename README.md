@@ -84,7 +84,7 @@ cargo run --release -p zorogravity-models
 
 - `.tmp` 로 받아서 크기가 맞을 때만 이름을 바꾸므로 받다 만 파일이 모델로 열리지 않습니다. 끊겨도 다시 누르면 이어 받습니다.
 - 망이 분리된 곳은 `ZOROGRAVITY_MODEL_MIRROR` 에 같은 경로 구조의 미러 주소를 줍니다.
-- 코어 엔진에는 네트워크 코드가 없습니다. 폴더 위치만 `zorogravity-models` 에서 가져옵니다.
+- 모델을 올릴 때 파일이 없으면 엔진이 터미널에 진행률을 보이며 바로 내려받고 이어서 실행합니다. 따로 실행할 것은 없습니다. 인터넷이 없는 곳은 `ZOROGRAVITY_AUTO_DOWNLOAD=0` 으로 끕니다.
 
 ## 빌드와 실행
 

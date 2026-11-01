@@ -12,7 +12,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "zorogravity-models"
 path = "src/main.rs"
-required-features = ["download"]
+required-features = ["settings"]
 
 [dependencies]
 anyhow = "1"
@@ -22,6 +22,7 @@ tiny_http = { version = "0.12", optional = true }
 ureq = { version = "3", default-features = false, features = ["rustls"], optional = true }
 
 [features]
-# 코어 엔진은 폴더 위치만 쓰고 네트워크 코드를 넣지 않습니다 (default-features = false).
-default = ["download"]
-download = ["dep:serde_json", "dep:tiny_http", "dep:ureq"]
+# 코어 엔진은 모델이 없을 때 내려받으므로 download 를 쓰고, 화면 서버(settings)는 넣지 않습니다.
+default = ["settings"]
+download = ["dep:ureq"]
+settings = ["download", "dep:serde_json", "dep:tiny_http"]
