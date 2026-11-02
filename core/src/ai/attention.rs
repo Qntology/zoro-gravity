@@ -456,13 +456,16 @@ mod tests {
         let a = t(det_normal(n * d, 33), &[n, d]);
         let w = t(det_normal(d * n, 34), &[d, n]);
         let on = |x: &Tensor| x.to_device(&device);
-        let mut worst = 0f32;
-        let mut compare = |name: &str, got: Tensor, want: Tensor| -> Result<()> {
+        let mut wrong = Vec::new();
+        let mut within = |name: &str, tol: f32, got: Tensor, want: Tensor| -> Result<()> {
             let err = rel_err(&got.to_device(&Device::Cpu)?, &want)?;
             println!("[DEVICE-OP] {name}: {err:.1e}");
-            worst = worst.max(err);
+            if err > tol {
+                wrong.push(format!("{name} {err:.1e}"));
+            }
             Ok(())
         };
+        let mut compare = |name: &str, got: Tensor, want: Tensor| within(name, 1e-3, got, want);
         compare("복사", on(&q)?, q.clone())?;
         compare("스칼라 곱", (on(&q)? * 2.0)?, (&q * 2.0)?)?;
         compare("전치", on(&q)?.transpose(1, 2)?.contiguous()?, q.transpose(1, 2)?.contiguous()?)?;
@@ -477,7 +480,7 @@ mod tests {
         let norm = t(det_normal(d, 35), &[d]);
         compare("rms_norm", candle_nn::ops::rms_norm(&on(&a)?, &on(&norm)?, 1e-6)?, rms_norm_composed(&a, &norm, 1e-6)?)?;
 
-        // 기준은 가중치만 푼 정확한 곱입니다. CPU 의 기본 곱은 활성값도 8비트로 줄입니다.
+        // 기준은 가중치만 푼 정확한 곱입니다. 기본 곱은 장치에 따라 활성값도 8비트로 줄여서 그만큼의 오차를 허용합니다.
         let dir = TempDir::new("attn-gpu");
         let path = dir.0.join("q8.gguf");
         write_gguf(&path, &[("general.architecture", Value::String("zoro".into()))], &[("w".into(), t(det_normal(16 * 64, 36), &[16, 64]), GgmlDType::Q8_0)])?;
@@ -485,12 +488,12 @@ mod tests {
         let (on_gpu, on_cpu) = (QMatMul::from_qtensor(file.read_qtensor("w", &device)?)?, QMatMul::from_qtensor(file.read_qtensor("w", &Device::Cpu)?)?);
         let x = t(det_normal(n * 64, 37), &[n, 64]);
         let row = x.narrow(0, 0, 1)?.contiguous()?;
-        compare("Q8_0 곱 여러 행", on_gpu.forward(&on(&x)?)?, on_cpu.forward_exact(&x)?)?;
-        compare("Q8_0 곱 한 행", on_gpu.forward(&on(&row)?)?, on_cpu.forward_exact(&row)?)?;
         compare("Q8_0 정확한 곱", on_gpu.forward_exact(&on(&x)?)?, on_cpu.forward_exact(&x)?)?;
+        within("Q8_0 곱 여러 행", 1e-2, on_gpu.forward(&on(&x)?)?, on_cpu.forward_exact(&x)?)?;
+        within("Q8_0 곱 한 행", 1e-2, on_gpu.forward(&on(&row)?)?, on_cpu.forward_exact(&row)?)?;
 
-        assert!(worst < 1e-3, "가장 큰 상대오차 {worst}");
-        println!("[DEVICE-CHECK] {} 기본 연산: 가장 큰 상대오차 {worst:.1e}", accel::backend_name(&device));
+        assert!(wrong.is_empty(), "틀린 연산: {wrong:?}");
+        println!("[DEVICE-CHECK] {} 기본 연산: 모두 허용 오차 안", accel::backend_name(&device));
         Ok(())
     }
 
