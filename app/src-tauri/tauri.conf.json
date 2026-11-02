@@ -11,8 +11,8 @@
   },
   "app": {
     "windows": [
-      { "label": "kiosk", "title": "zoro-gravity 민원 창구", "width": 1280, "height": 800 },
-      { "label": "officer", "title": "zoro-gravity 심사 콘솔", "width": 1920, "height": 1080, "maximized": true }
+      { "label": "kiosk", "title": "zorogravity 민원 창구", "width": 1280, "height": 800 },
+      { "label": "officer", "title": "zorogravity 심사 콘솔", "width": 1920, "height": 1080, "maximized": true }
     ],
     "security": { "csp": null }
   },
