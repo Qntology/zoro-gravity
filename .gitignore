@@ -1,6 +1,9 @@
 # Rust
 target/
 
+# Python
+__pycache__/
+
 # 앱 프론트 · Tauri 생성물
 node_modules/
 app/dist/
