@@ -28,7 +28,7 @@
 | 문서 묶음 읽기 · 항목 추출 | **구현** (`ai::document`, `extract`). 픽셀 계산은 병렬, 모델은 단계마다 한 번만 올립니다. 서류 종류 · 항목 · 서명을 뽑고, 글자 신뢰도가 낮은 값은 사람에게 넘깁니다. 합성 서류로만 평가했습니다 |
 | 모델 양자화 (GGUF Q4 · Q8, 비전 BF16) | 구현 · gocr · zoro 모두 q8 선택. [docs/model-quantization.md](docs/model-quantization.md) |
 | 장치 선택 · 커널 자가 검증 (ROCm · Vulkan · CPU) | 구현 · 실측은 아래 |
-| HWP 문서 생성 (@rhwp) | 미구현 (본문 텍스트만) |
+| HWP 문서 생성 (rhwp) | 구현 (`tools/hwp-builder`, 내부결재용 · 교부용, 금지어 · 확정 수치 검사). 심사 흐름과 앱 편집기에는 아직 연결 안 됨 |
 | 모델 다운로드 · 삭제 (AppData, 진행률 표시) | 구현 (`tools/model-settings`, 앱 설정 화면) |
 | KV 캐시 FP8 (ROCm · Vulkan · CUDA) | 구현 (`ai::kv_turbo`). CPU 단위 테스트만 통과했고 **GPU 에서는 아직 돌려 보지 않았습니다** |
 | Tauri 앱 (`app`) | **구현**. 민원인 키오스크(서류 넣기 → 내용 확인 → 결과)와 공무원 콘솔(사유 → 남은 확인 → 처리). 실제 모델로 끝까지 돕니다. 스캐너는 폴더로 대신합니다. 검증 결과는 [docs/stabilization-report.md](docs/stabilization-report.md) |
@@ -192,6 +192,7 @@ zorogravity/
 │   └── tests/              governance.rs (명세 사례 엔드투엔드) · form_route.rs (양식 흐름) · matrix.rs (N:N)
 │                           real_models.rs (실제 모델 점검, --ignored)
 ├── tools/gguf-convert/     zorogravity-gguf: safetensors → GGUF (Q4_K · Q8_0, 비전 BF16), 정밀도 점검, jev_head 변환
+├── tools/hwp-builder/      zorogravity-hwp: rhwp 로 내부결재용 · 민원인 교부용 HWP 생성
 ├── tools/model-settings/   zorogravity-models: 모델 폴더(AppData) · 다운로드 · 삭제
 ├── app/                    Tauri + React 앱: 키오스크 · 공무원 콘솔 창, 모델 설정 화면
 ├── run/                    백엔드별 실행 스크립트 (windows · linux · macos)
