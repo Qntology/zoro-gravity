@@ -77,7 +77,7 @@ run\windows\rocm.bat read_page 이미지.jpg
 | --- | --- | --- |
 | `zoro` | [Qntology/zoro-1-gguf](https://huggingface.co/Qntology/zoro-1-gguf) | 5.2 GB |
 | `gocr` | [Qntology/GravityOCR-KO-gguf](https://huggingface.co/Qntology/GravityOCR-KO-gguf) | 1.6 GB |
-| `siglip2` | 없음. 직접 변환해서 `models/siglip2` 에 넣습니다 ([docs/document-crop.md](docs/document-crop.md)) | - |
+| `siglip2` | [Qntology/siglip2-so400m-patch16-naflex-gguf](https://huggingface.co/Qntology/siglip2-so400m-patch16-naflex-gguf) (원본 safetensors 에서 직접 변환한 결과, [docs/document-crop.md](docs/document-crop.md)) | 1.7 GB |
 
 - `.tmp` 로 받아서 크기가 맞을 때만 이름을 바꾸므로 받다 만 파일이 모델로 열리지 않습니다. 끊겨도 다시 누르면 이어 받습니다.
 - `ZOROGRAVITY_MODEL_MIRROR` 에 같은 경로 구조의 미러 주소를 줄 수 있습니다.
