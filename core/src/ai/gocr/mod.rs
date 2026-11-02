@@ -121,6 +121,8 @@ pub struct OcrOutput {
     /// 토큰별 최고 확률의 평균 · 최솟값
     pub mean_confidence: f32,
     pub min_confidence: f32,
+    /// 글자별 신뢰도 (`text` 의 글자 수와 같습니다). 값 하나가 믿을 만한지 칸 단위로 볼 때 씁니다.
+    pub char_confidence: Vec<f32>,
     /// 끝 토큰에 닿기 전에 길이 제한으로 멈췄는가
     pub truncated: bool,
     /// 초안 · 검증 순전파 횟수
@@ -222,11 +224,13 @@ impl GocrLanguage {
         let text = self.tokenizer.decode(&out.tokens)?;
         let mean = if out.confs.is_empty() { 0.0 } else { out.confs.iter().sum::<f32>() / out.confs.len() as f32 };
         let min = out.confs.iter().copied().fold(1.0f32, f32::min);
+        let char_confidence = char_confidences(text.chars().count(), &out.tokens, &out.confs, |ids| self.tokenizer.decode(ids))?;
         Ok(OcrOutput {
             text,
             tokens: out.tokens,
             mean_confidence: mean,
             min_confidence: min,
+            char_confidence,
             truncated: out.truncated,
             drafts: out.drafts,
             verifies: out.verifies,
@@ -237,6 +241,23 @@ impl GocrLanguage {
             decode_ms,
         })
     }
+}
+
+/// 토큰 신뢰도를 글자 신뢰도로 옮깁니다. 글자 하나가 토큰 둘에 걸치면 둘 중 낮은 값을 씁니다.
+fn char_confidences(chars: usize, tokens: &[u32], confs: &[f32], decode: impl Fn(&[u32]) -> Result<String>) -> Result<Vec<f32>> {
+    let mut out = Vec::with_capacity(chars);
+    let mut carry = 1.0f32;
+    for (i, &c) in confs.iter().enumerate() {
+        carry = carry.min(c);
+        // 앞부분이 글자 중간에서 끊기면 끝에 대체 문자가 붙습니다. 그 글자는 다음 토큰에서 셉니다.
+        let n = decode(&tokens[..=i])?.trim_end_matches('\u{FFFD}').chars().count();
+        if n > out.len() {
+            out.resize(n, carry);
+            carry = 1.0;
+        }
+    }
+    out.resize(chars, carry);
+    Ok(out)
 }
 
 /// 디코더 · 캐시를 [`BlockModel`] 로 묶습니다.

@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use chrono::{Days, NaiveDate};
 
 use super::gate0_router::mandatory_docs;
-use crate::case::{CaseFile, Category, Signature};
+use crate::case::{CaseFile, CaseSource, Category, Signature};
 use crate::verdict::Verdict;
 
 /// 전자서명 기준 (명세 Case 1-B): 획수 2회 이상, 서명란 면적 15% 이상, 한 줄 직선이 아님
@@ -54,9 +54,10 @@ pub fn check_documents(case: &CaseFile) -> FormalReport {
         }
         kinds.push(d.kind.as_str());
     }
+    // 대장이나 창구에서 확인한 서류는 스캔된 것과 같이 셉니다.
     let missing = required
         .iter()
-        .filter(|r| !kinds.contains(r))
+        .filter(|r| !kinds.contains(r) && !case.intake.evidence.iter().any(|e| e.kind == **r))
         .map(|r| r.to_string())
         .collect();
     let unexpected = kinds
@@ -111,7 +112,7 @@ pub fn evaluate(case: &CaseFile) -> Gate1 {
     }
 
     // 2) 전자서명: 서명란이 필요한 민원은 유효한 서명이 있어야 합니다 (명세 Case 1-B)
-    if requires_signature(case.category) {
+    if requires_signature(case.category) && !case.intake.stamp_requested {
         match &case.signature {
             Some(s) if signature_valid(s) => {}
             Some(_) => {
@@ -129,9 +130,10 @@ pub fn evaluate(case: &CaseFile) -> Gate1 {
         }
     }
 
-    // 3) 필수 서류
+    // 3) 필수 서류. 양식 입력 건은 서류를 창구에서 확인하므로, 빠진 서류는 보류하지 않고 창구 확인 대기로 넘깁니다.
+    //    확정 전에 창구 확인이 끝나야 하는 것은 `pipeline::confirm` 이 막습니다.
     let report = check_documents(case);
-    if report.is_complete() {
+    if report.is_complete() || case.source == CaseSource::KioskForm {
         Gate1::Pass(report)
     } else {
         Gate1::Hold { report }
@@ -164,6 +166,7 @@ mod tests {
         CaseFile {
             case_id: "t".into(),
             category,
+            source: Default::default(),
             docs,
             applicant: Person { name: "김철수".into(), birth_prefix: "990101".into(), identifier: "x".into() },
             landlord: None,
@@ -176,6 +179,8 @@ mod tests {
             relations: vec![],
             supplement_count: 0,
             grievance_text: None,
+            contact: None,
+            intake: Default::default(),
         }
     }
 

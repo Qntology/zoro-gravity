@@ -4,7 +4,7 @@
 //! 차액이 생기면 소명 종류에 따라 정합 / 모순 기각 / 증빙 요구 / 공무원 확인으로 나눕니다.
 //! 금액 계산은 정수 연산(checked)으로만 합니다. 모델은 숫자를 계산하지 않습니다.
 
-use crate::case::{BankFacts, Excuse, LeaseFacts};
+use crate::case::{BankFacts, Excuse, LeaseFacts, Receipt, SubsidyFacts};
 use crate::verdict::Verdict;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -98,6 +98,57 @@ pub fn check_manual_amount(verified_sum: i64, requested: i64, evidence_sum: i64)
     }
 }
 
+/// 입찰 회피를 보는 금액 기준 (명세 CAT_02: 50만 원)
+pub const BID_LIMIT: i64 = 500_000;
+
+/// 지원금으로 인정하지 않는 품목 낱말 (명세 CAT_02: 주류 등)
+const BARRED_ITEMS: [&str; 3] = ["주류", "유흥", "노래방"];
+
+/// 영수증 대조 결과. 합계는 규칙이 정수로 계산합니다.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ReceiptReview {
+    /// 중복과 비인정 품목을 뺀 인정 합계
+    pub verified_sum: i64,
+    /// 같은 승인번호로 두 번 들어온 영수증
+    pub duplicates: Vec<String>,
+    /// 인정하지 않는 품목의 승인번호
+    pub barred: Vec<String>,
+    /// 같은 날 같은 거래처로 나눠 결제해 입찰 기준을 넘긴 거래처
+    pub splits: Vec<String>,
+    /// 신청 금액 - 인정 합계. 양수면 증빙이 모자랍니다.
+    pub gap: i64,
+}
+
+/// 영수증을 대조합니다. 중복은 한 장으로 합치고, 비인정 품목은 빼고, 분할 결제를 찾습니다 (명세 Part 6 CAT_02).
+pub fn review_receipts(facts: &SubsidyFacts) -> ReceiptReview {
+    let mut seen: Vec<&str> = Vec::new();
+    let mut r = ReceiptReview::default();
+    let mut unique: Vec<&Receipt> = Vec::new();
+    for receipt in &facts.receipts {
+        if seen.contains(&receipt.approval.as_str()) {
+            r.duplicates.push(receipt.approval.clone());
+            continue;
+        }
+        seen.push(&receipt.approval);
+        unique.push(receipt);
+        let barred = facts.barred_vendors.contains(&receipt.vendor) || BARRED_ITEMS.iter().any(|w| receipt.item.contains(w));
+        if barred {
+            r.barred.push(receipt.approval.clone());
+        } else {
+            r.verified_sum = r.verified_sum.saturating_add(receipt.amount);
+        }
+    }
+    for receipt in &unique {
+        let same_day: Vec<&&Receipt> = unique.iter().filter(|o| o.vendor == receipt.vendor && o.date == receipt.date).collect();
+        let total: i64 = same_day.iter().map(|o| o.amount).sum();
+        if same_day.len() >= 2 && total >= BID_LIMIT && same_day.iter().all(|o| o.amount < BID_LIMIT) && !r.splits.contains(&receipt.vendor) {
+            r.splits.push(receipt.vendor.clone());
+        }
+    }
+    r.gap = facts.claimed_total.saturating_sub(r.verified_sum);
+    r
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,5 +207,42 @@ mod tests {
         assert_eq!(check_manual_amount(820_000, 1_000_000, 0), Err(Verdict::G2BlockUnprovenEdit));
         assert_eq!(check_manual_amount(820_000, 1_000_000, 180_000), Ok(()));
         assert_eq!(check_manual_amount(820_000, 700_000, 0), Ok(()), "내리는 것은 허용");
+    }
+
+    fn receipt(approval: &str, vendor: &str, date: &str, amount: i64, item: &str) -> Receipt {
+        Receipt { approval: approval.into(), vendor: vendor.into(), date: date.into(), time: "10:00".into(), amount, item: item.into() }
+    }
+
+    #[test]
+    fn receipts_merge_duplicates_drop_barred_items_and_find_splits() {
+        let facts = SubsidyFacts {
+            claimed_total: 1_000_000,
+            receipts: vec![
+                receipt("1", "태성기획", "2026-10-14", 480_000, "인쇄"),
+                receipt("2", "태성기획", "2026-10-14", 340_000, "인쇄"),
+                receipt("2", "태성기획", "2026-10-14", 340_000, "인쇄"),
+                receipt("3", "달빛주점", "2026-10-15", 100_000, "회식"),
+            ],
+            barred_vendors: vec!["달빛주점".into()],
+            ..SubsidyFacts::default()
+        };
+        let r = review_receipts(&facts);
+        assert_eq!(r.duplicates, vec!["2".to_string()]);
+        assert_eq!(r.barred, vec!["3".to_string()]);
+        assert_eq!(r.verified_sum, 820_000, "명세 Case 2-D 의 인정 합계");
+        assert_eq!(r.gap, 180_000);
+        assert_eq!(r.splits, vec!["태성기획".to_string()]);
+    }
+
+    #[test]
+    fn one_large_payment_or_small_payments_below_the_limit_are_not_splits() {
+        let facts = SubsidyFacts {
+            claimed_total: 650_000,
+            receipts: vec![receipt("1", "우리인쇄", "2026-10-01", 600_000, "인쇄"), receipt("2", "대한문구", "2026-10-01", 20_000, "문구"), receipt("3", "대한문구", "2026-10-01", 30_000, "문구")],
+            ..SubsidyFacts::default()
+        };
+        let r = review_receipts(&facts);
+        assert!(r.splits.is_empty(), "{:?}", r.splits);
+        assert_eq!(r.gap, 0);
     }
 }

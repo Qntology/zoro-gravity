@@ -5930,10 +5930,14 @@ checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
 name = "zorogravity-app"
 version = "0.1.0"
 dependencies = [
+ "candle-core",
+ "chrono",
+ "image",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "zorogravity-core",
  "zorogravity-models",
 ]
 
@@ -5951,6 +5955,7 @@ dependencies = [
  "image",
  "memmap2",
  "rayon",
+ "serde",
  "serde_json",
  "sha2",
  "thiserror 2.0.21",

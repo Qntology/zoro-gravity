@@ -4,10 +4,12 @@
 //! 모델 확률이 높다는 것만으로는 불리한 처분이 되지 않습니다.
 
 use anyhow::Result;
+use chrono::NaiveDate;
 
-use crate::case::Relation;
+use super::gate2_consistency::ReceiptReview;
+use crate::case::{CertFacts, PermitFacts, Relation, SubsidyFacts};
 use crate::decision::{DecisionModel, DecisionTask, Fact};
-use crate::graph::{close_link_path, shares_name_with_other_node};
+use crate::graph::{close_link_path, related_party_path, shares_name_with_other_node};
 use crate::privacy;
 use crate::verdict::{Judgement, Verdict, judge_by_criteria};
 
@@ -71,13 +73,101 @@ pub fn evaluate(
             ),
             Fact::new(
                 "동명이인 후보",
-                if homonym { "예 (같은 이름이 연결망에 있으나 다른 사람으로 판별)" } else { "아니오" },
+                // 사람을 가른 근거를 그대로 적습니다. 대장 조회가 성명과 생년월일로 한 사람을 정하기 때문입니다.
+                if homonym { "예 (생년월일이 달라 다른 사람으로 확인)" } else { "아니오" },
             ),
         ],
         options: OPTIONS.to_vec(),
     };
     let judgement = judge_by_criteria(rule, &task, (Verdict::G3EligibleNormal, Verdict::G3ViolationHighRisk), &CRITERIA, model)?;
     Ok(Substantive { judgement, close_path, homonym })
+}
+
+/// 보조금 집행 심사의 선택지 (명세 Part 6 §1.2)
+pub const SUBSIDY_OPTIONS: [Verdict; 3] = [Verdict::G3EligibleNormal, Verdict::G3HoldSimpleReceiptMissing, Verdict::G3ViolationRelatedVendorSplit];
+pub const SUBSIDY_CRITERIA: [&str; 2] = ["거래처 특수관계 여부", "입찰 회피 분할 결제 여부"];
+/// 영업신고 · 위임장 심사의 선택지
+pub const REVIEW_OPTIONS: [Verdict; 2] = [Verdict::G3EligibleNormal, Verdict::G3ViolationHighRisk];
+pub const PERMIT_CRITERIA: [&str; 3] = ["위반건축물 여부", "건축물 용도 적합 여부", "필증 유효 여부"];
+pub const CERT_CRITERIA: [&str; 2] = ["유효기간 여부", "위임자 서명 여부"];
+
+/// 지원금 정산: 관계망 경로와 분할 결제는 규칙이 정하고, 모델은 유리한 판정에 확신도만 줍니다.
+pub fn evaluate_subsidy(relations: &[Relation], facts: &SubsidyFacts, review: &ReceiptReview, model: Option<&dyn DecisionModel>) -> Result<Substantive> {
+    let close_path = facts
+        .org_node
+        .as_deref()
+        .and_then(|org| facts.vendor_nodes.iter().find_map(|(_, vendor)| related_party_path(relations, org, vendor, MAX_HOPS)));
+    let rule = if close_path.is_some() || !review.splits.is_empty() {
+        Verdict::G3ViolationRelatedVendorSplit
+    } else if review.gap > 0 {
+        Verdict::G3HoldSimpleReceiptMissing
+    } else {
+        Verdict::G3EligibleNormal
+    };
+    let task = DecisionTask {
+        title: "보조금 집행 심사".into(),
+        facts: vec![
+            Fact::new("적용 규칙", "특수관계 거래처 집행과 50만 원 입찰 회피 분할 결제는 인정하지 않음"),
+            Fact::new("거래처 관계", close_path.as_ref().map_or("없음".to_string(), |p| format!("있음 ({}홉)", p.len().saturating_sub(1)))),
+            Fact::new("분할 결제", if review.splits.is_empty() { "없음" } else { "같은 날 같은 거래처 연속 결제" }),
+            Fact::new(
+                "영수증 대조",
+                if review.gap > 0 { format!("신청액보다 증빙 합계가 {}원 적음", review.gap) } else { "신청액과 증빙 합계 일치".to_string() },
+            ),
+        ],
+        options: SUBSIDY_OPTIONS.to_vec(),
+    };
+    let judgement = judge_by_criteria(rule, &task, (Verdict::G3EligibleNormal, Verdict::G3ViolationRelatedVendorSplit), &SUBSIDY_CRITERIA, model)?;
+    Ok(Substantive { judgement, close_path, homonym: false })
+}
+
+/// 일반음식점이 들어갈 수 있는 건축물 용도인지 봅니다.
+pub fn use_allows_restaurant(usage: &str) -> bool {
+    usage.contains("근린생활시설")
+}
+
+/// 영업신고: 위반건축물과 용도는 규칙이 정합니다. 필증 만료는 서류 누락으로 다룹니다 (`evidence.rs`).
+pub fn evaluate_permit(facts: &PermitFacts, today: NaiveDate, model: Option<&dyn DecisionModel>) -> Result<Substantive> {
+    let bad_use = facts.building_use.as_deref().is_some_and(|u| !use_allows_restaurant(u));
+    let rule = if facts.building_violation.is_some() || bad_use { Verdict::G3ViolationHighRisk } else { Verdict::G3EligibleNormal };
+    let valid = |e: Option<NaiveDate>| match e {
+        Some(d) if d >= today => "유효".to_string(),
+        Some(d) => format!("{d} 만료"),
+        None => "미확인".to_string(),
+    };
+    let task = DecisionTask {
+        title: "영업신고 수리 심사".into(),
+        facts: vec![
+            Fact::new("적용 규칙", "위반건축물이거나 용도가 맞지 않거나 필증이 만료되면 수리 불가"),
+            Fact::new("위반건축물 표기", facts.building_violation.as_deref().unwrap_or("없음")),
+            Fact::new("건축물 용도", facts.building_use.as_deref().unwrap_or("미확인")),
+            Fact::new("위생교육필증", valid(facts.hygiene_expires)),
+            Fact::new("소방안전필증", valid(facts.fire_expires)),
+        ],
+        options: REVIEW_OPTIONS.to_vec(),
+    };
+    let judgement = judge_by_criteria(rule, &task, (Verdict::G3EligibleNormal, Verdict::G3ViolationHighRisk), &PERMIT_CRITERIA, model)?;
+    Ok(Substantive { judgement, close_path: None, homonym: false })
+}
+
+/// 증명 · 대리: 유효기간 초과는 Gate 1 이 막으므로 여기까지 온 위임장은 기간 안입니다. 모델은 확신도만 줍니다.
+pub fn evaluate_cert(elapsed_days: i64, facts: &CertFacts, model: Option<&dyn DecisionModel>) -> Result<Substantive> {
+    let signed = match facts.principal_signed {
+        Some(true) => "있음",
+        Some(false) => "없음",
+        None => "미확인",
+    };
+    let task = DecisionTask {
+        title: "위임장 유효성 심사".into(),
+        facts: vec![
+            Fact::new("적용 규칙", "위임장은 작성일로부터 6개월 이내여야 하고 위임자 자필 서명이나 도장이 있어야 함"),
+            Fact::new("작성일 경과", format!("{elapsed_days}일")),
+            Fact::new("위임자 서명", signed),
+        ],
+        options: REVIEW_OPTIONS.to_vec(),
+    };
+    let judgement = judge_by_criteria(Verdict::G3EligibleNormal, &task, (Verdict::G3EligibleNormal, Verdict::G3ViolationHighRisk), &CERT_CRITERIA, model)?;
+    Ok(Substantive { judgement, close_path: None, homonym: false })
 }
 
 /// 고위험 판정 건을 공무원이 `정상 승인`으로 바꾸려 할 때 내미는 입증 (명세 Case 3-D)
@@ -101,7 +191,7 @@ pub enum OfficerOutcome {
 
 /// 공무원의 승인 시도를 검사합니다. 고위험 판정이 아니면 그대로 승인입니다.
 pub fn officer_approve(verdict: Verdict, justification: Option<&Justification>) -> Result<OfficerOutcome, Verdict> {
-    if verdict != Verdict::G3ViolationHighRisk {
+    if !matches!(verdict, Verdict::G3ViolationHighRisk | Verdict::G3ViolationRelatedVendorSplit) {
         return Ok(OfficerOutcome::Approved { special_audit_flag: false });
     }
     match justification {

@@ -1,7 +1,7 @@
 //! Gate 0: 5대 법정 민원 분류와 필수 서류 스키마 로드 (명세 Part 2 §1).
 //!
 //! 접수 양식의 분류 코드가 규칙 판정입니다. Zoro-1 이 있으면 `CAT_*` 선택지 중 하나를 골라 의견을 붙입니다.
-//! 민원 분류는 공무원이 바꿀 수 없는 입력이므로, 모델이 다르게 답하면 확신도가 없어져 자동 확정이 막힙니다.
+//! 이 의견은 파이프라인이 읽지 않습니다. 모델이 다르게 답해도 분류와 자동 확정은 달라지지 않습니다.
 
 use anyhow::Result;
 
@@ -44,6 +44,10 @@ pub fn mandatory_docs(category: Category) -> &'static [&'static str] {
 pub fn route(case: &CaseFile, model: Option<&dyn DecisionModel>) -> Result<Judgement> {
     let rule = verdict_of(case.category);
     let docs: Vec<&str> = case.docs.iter().map(|d| d.kind.as_str()).collect();
+    // 서류 없이 고른 민원은 모델에 보여 줄 것이 없습니다. 분류는 접수 양식이 정합니다.
+    if docs.is_empty() {
+        return Ok(Judgement::by_rule(rule));
+    }
     let task = DecisionTask {
         title: "민원 종류 분류".into(),
         facts: vec![Fact::new("스캔된 서류", docs.join(", "))],

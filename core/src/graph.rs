@@ -10,17 +10,27 @@ use crate::case::{Link, Relation};
 pub fn is_close_link(link: Link) -> bool {
     match link {
         Link::Family { degree } => degree <= 2,
-        Link::Household { .. } | Link::SharedAccount => true,
+        Link::Household { .. } | Link::SharedAccount | Link::Spouse => true,
+        Link::OfficerOf | Link::RepresentedBy => false,
     }
 }
 
 /// `from` 과 `to` 가 가까운 연결만 따라 `max_hops` 홉 안에서 이어지면, 노드 해시 경로를 돌려줍니다.
 pub fn close_link_path(relations: &[Relation], from: &str, to: &str, max_hops: usize) -> Option<Vec<String>> {
+    path_through(relations, from, to, max_hops, is_close_link)
+}
+
+/// 단체와 거래처를 잇는 특수관계 경로. 임원 · 대표 관계도 따라갑니다 (명세 Case 3-B 의 2~3 홉 우회).
+pub fn related_party_path(relations: &[Relation], from: &str, to: &str, max_hops: usize) -> Option<Vec<String>> {
+    path_through(relations, from, to, max_hops, |link| is_close_link(link) || matches!(link, Link::OfficerOf | Link::RepresentedBy))
+}
+
+fn path_through(relations: &[Relation], from: &str, to: &str, max_hops: usize, allowed: fn(Link) -> bool) -> Option<Vec<String>> {
     if from == to {
         return Some(vec![from.to_string()]);
     }
     let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
-    for r in relations.iter().filter(|r| is_close_link(r.link)) {
+    for r in relations.iter().filter(|r| allowed(r.link)) {
         adj.entry(r.a.hash.as_str()).or_default().push(r.b.hash.as_str());
         adj.entry(r.b.hash.as_str()).or_default().push(r.a.hash.as_str());
     }

@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use anyhow::{Result, bail};
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 
 use crate::audit::{AuditEvent, AuditLog};
 use crate::case::CaseFile;
@@ -30,9 +30,21 @@ pub struct ArchiveRow {
     pub retention_until: NaiveDate,
 }
 
+/// 고충민원을 담당 부서에 넘긴 기록 (내부용). 민원 원문은 남기지 않고, 세션은 지웁니다.
+/// 보존 기간은 법무 검토 전이라 아카이브(`ArchiveRow`) 대신 여기에 둡니다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TransferRow {
+    pub receipt_no: String,
+    pub department: String,
+    pub officer_id: String,
+    pub at: DateTime<Utc>,
+}
+
 /// 확정 전까지 세션이 들고 있는 것: 원문 민원과 처분 후보
 pub struct ActiveSession {
     pub case: CaseFile,
+    /// 접수 시각
+    pub received_at: DateTime<Utc>,
     /// 규칙 판정 (처분 후보). 절차 정지 상태면 None
     pub judgement: Option<Judgement>,
     /// 공무원에게 보이는 정지·확인 사유
@@ -45,6 +57,7 @@ pub struct ActiveSession {
 pub struct Store {
     active: HashMap<String, ActiveSession>,
     archive: Vec<ArchiveRow>,
+    transferred: Vec<TransferRow>,
     audit: AuditLog,
 }
 
@@ -56,6 +69,34 @@ impl Store {
         }
         self.active.insert(id, session);
         Ok(())
+    }
+
+    /// 고충민원 이첩: 이첩 기록을 남기고 감사 기록을 붙인 뒤 활성 세션을 지웁니다.
+    /// 실패할 수 있는 검사는 먼저 하고, 상태는 마지막에만 바꿉니다.
+    pub fn close_transferred(&mut self, case_id: &str, row: TransferRow, events: Vec<AuditEvent>) -> Result<()> {
+        if !self.active.contains_key(case_id) {
+            bail!("활성 세션이 없습니다: {case_id}");
+        }
+        self.transferred.push(row);
+        for e in events {
+            self.audit.append(e);
+        }
+        drop(self.active.remove(case_id));
+        Ok(())
+    }
+
+    /// 세션을 꺼냅니다. 창구 확인 뒤 다시 심사할 때 씁니다.
+    pub fn take(&mut self, case_id: &str) -> Option<ActiveSession> {
+        self.active.remove(case_id)
+    }
+
+    pub fn transferred(&self) -> &[TransferRow] {
+        &self.transferred
+    }
+
+    /// 진행 중인 세션 전부 (공무원 콘솔 목록용)
+    pub fn active_sessions(&self) -> impl Iterator<Item = &ActiveSession> {
+        self.active.values()
     }
 
     pub fn active(&self, case_id: &str) -> Option<&ActiveSession> {
@@ -113,6 +154,7 @@ mod tests {
         CaseFile {
             case_id: id.into(),
             category: Category::Welfare,
+            source: Default::default(),
             docs: vec![],
             applicant: Person { name: "김철수".into(), birth_prefix: "990101".into(), identifier: "9901011234567".into() },
             landlord: None,
@@ -125,12 +167,15 @@ mod tests {
             relations: vec![],
             supplement_count: 0,
             grievance_text: None,
+            contact: None,
+            intake: Default::default(),
         }
     }
 
     fn session(id: &str) -> ActiveSession {
         ActiveSession {
             case: case(id),
+            received_at: Utc::now(),
             judgement: Some(Judgement::by_rule(Verdict::G3EligibleNormal)),
             reason: String::new(),
             draft: None,

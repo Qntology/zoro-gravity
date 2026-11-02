@@ -46,6 +46,7 @@ fn clean_welfare(id: &str) -> CaseFile {
     CaseFile {
         case_id: id.into(),
         category: Category::Welfare,
+        source: Default::default(),
         docs: vec![
             doc("신청서", "h1"),
             doc("임대차계약서", "h2"),
@@ -66,6 +67,8 @@ fn clean_welfare(id: &str) -> CaseFile {
         relations: vec![],
         supplement_count: 0,
         grievance_text: None,
+        contact: None,
+        intake: Default::default(),
     }
 }
 

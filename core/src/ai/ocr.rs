@@ -10,11 +10,14 @@
 
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::{bail, Context, Result};
+use serde_json::json;
 
 use super::gguf_model::load_active;
 use super::residency::{Group, Loaded, ModelId, ModelSpec, Phase, Prepare, Residency, SharedResidency};
+use super::trace;
 use super::weights::WeightFile;
 
 /// 단계 안에서 콜백이 읽을 수 있는 상주 상태 (읽기 전용). 진단과 시험용입니다.
@@ -124,12 +127,15 @@ where
             return Ok(Vec::new());
         }
         // 1. 비전 단계: 비전 타워만 올립니다 (다른 모델이 올라와 있었다면 그 모델을 먼저 내립니다).
+        let t = Instant::now();
         let features = {
             let handles = res.enter(&self.spec, &vision_phase())?;
             self.encoder.encode_many(&PhaseCtx { residency: &*res }, &handles[0], inputs)?
             // 핸들을 여기서 놓아야 다음 단계에서 비전을 내릴 수 있습니다.
         };
+        trace::record("gocr", "비전", t.elapsed().as_secs_f64() * 1e3, json!({ "inputs": inputs.len() }));
         // 2. 언어 단계: 비전을 내리고 언어 가중치만 올립니다.
+        let t = Instant::now();
         let handles = res.enter(&self.spec, &language_phase(self.blocks))?;
         let weights = LanguageWeights { blocks: Arc::clone(&handles[0]), output: Arc::clone(&handles[1]) };
         drop(handles);
@@ -137,6 +143,7 @@ where
         for f in features {
             out.push(self.decoder.decode(&PhaseCtx { residency: &*res }, &weights, f)?);
         }
+        trace::record("gocr", "언어", t.elapsed().as_secs_f64() * 1e3, json!({ "inputs": inputs.len() }));
         Ok(out)
         // `weights` 는 반환과 함께 놓입니다. 다음에 다른 모델이나 단계가 오면 언어 가중치가 내려갑니다.
     }

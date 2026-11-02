@@ -11,11 +11,11 @@ use chrono::{DateTime, NaiveDate, Utc};
 
 use super::gate0_router;
 use super::gate1_formal::{self, FormalReport, Gate1};
-use super::gate2_consistency::{self, Consistency};
-use super::gate3_substantive::{self, Justification, OfficerOutcome};
+use super::gate2_consistency::{self, Consistency, ReceiptReview};
+use super::gate3_substantive::{self, Justification, OfficerOutcome, Substantive};
 use super::gate4_5_finalize::{self as g45, Form};
 use crate::audit::{Actor, AuditCategory, AuditEvent};
-use crate::case::{CaseFile, Category, Excuse, LeaseFacts};
+use crate::case::{CaseFile, CaseSource, Category, Excuse, Identity, LeaseFacts};
 use crate::decision::DecisionModel;
 use crate::drafting::{self, GrievanceSummary, TextWriter};
 use crate::policy::{AutomationPolicy, Disposition};
@@ -105,13 +105,28 @@ impl Engine {
         self.store.record(event);
     }
 
+    /// 노드 식별자의 솔트 해시. 관계망을 사건에 붙일 때 같은 솔트를 씁니다.
+    pub fn node_hash(&self, id: &str) -> String {
+        privacy::node_hash(&self.salt, id)
+    }
+
     /// 민원 한 건을 Gate 0 부터 돌립니다. 모델이 없으면 규칙만 씁니다.
+    ///
+    /// 키오스크 접수 건은 모델이 실패해도 멈추지 않고 규칙으로 이어 갑니다. 민원인이 낸 내용을 잃으면 안 되기 때문입니다.
     pub fn run(&mut self, case: CaseFile, now: DateTime<Utc>) -> Result<CaseOutcome> {
         let case_id = case.case_id.clone();
         let model = self.model.as_deref();
+        let kiosk = case.source == CaseSource::KioskForm;
 
         // Gate 0: 분류 (접수 양식이 규칙, Zoro-1 은 의견)
-        let routed = gate0_router::route(&case, model)?;
+        let routed = match gate0_router::route(&case, model) {
+            Ok(j) => j,
+            Err(e) if kiosk => {
+                record(&mut self.store, now, Actor::System, AuditCategory::DecisionRecorded, &case_id, None, format!("Gate 0 모델 실패, 규칙으로 진행: {e}"));
+                Judgement::by_rule(gate0_router::verdict_of(case.category))
+            }
+            Err(e) => return Err(e),
+        };
         record(
             &mut self.store,
             now,
@@ -132,7 +147,7 @@ impl Engine {
         }
 
         // Gate 1: 형식심사
-        match gate1_formal::evaluate(&case) {
+        let report = match gate1_formal::evaluate(&case) {
             Gate1::SignatureRetry { verdict, reason } => {
                 record(&mut self.store, now, Actor::CitizenKiosk, AuditCategory::DecisionRecorded, &case_id, None, reason.clone());
                 return Ok(CaseOutcome::KioskRetry { verdict, reason });
@@ -155,21 +170,40 @@ impl Engine {
                         format!("중복 스캔 {}건을 한 장으로 합침", report.duplicates.len()),
                     );
                 }
+                report
+            }
+        };
+
+        // 창구에서 확인할 일. 키오스크 접수 건만 생깁니다. 하나라도 있으면 자동 확정하지 않습니다.
+        let mut notes = case.intake.pending.clone();
+        if kiosk {
+            if !report.missing.is_empty() {
+                notes.push(format!("확인되지 않은 서류: {}", report.missing.join(", ")));
+            }
+            if !report.unexpected.is_empty() {
+                notes.push(format!("이 민원에 필요 없는 서류: {}", report.unexpected.join(", ")));
             }
         }
+        // 서류나 대장으로 확인되지 않은 값은 정정 · 잠금 · 민원인 재요청을 하지 않습니다.
+        let unverified = !notes.is_empty();
+        let soft = unverified || case.intake.counter_done;
 
         // Gate 2: 정합성 교차대조
         if let Some(bank) = &case.bank {
             if gate2_consistency::lock_account(bank).overwrote_handwritten {
-                record(
-                    &mut self.store,
-                    now,
-                    Actor::ZoroGuardrail,
-                    AuditCategory::FactLocked,
-                    &case_id,
-                    None,
-                    "계좌번호를 인쇄 원장 값으로 고정 (수기 기재와 불일치)",
-                );
+                if unverified {
+                    notes.push("입금받을 계좌와 통장 계좌가 다릅니다".to_string());
+                } else {
+                    record(
+                        &mut self.store,
+                        now,
+                        Actor::ZoroGuardrail,
+                        AuditCategory::FactLocked,
+                        &case_id,
+                        None,
+                        "계좌번호를 인쇄 원장 값으로 고정 (수기 기재와 불일치)",
+                    );
+                }
             }
         }
         if let Some(lease) = &case.lease {
@@ -182,28 +216,69 @@ impl Engine {
                 record(&mut self.store, now, Actor::System, AuditCategory::DecisionRecorded, &case_id, None, "자유 서술 소명을 표준 소명으로 정규화");
             }
             match gate2_consistency::check_rent(lease, normalized.as_ref().or(case.excuse.as_ref())) {
-                Consistency::Consistent { .. } => {}
+                Consistency::Consistent { note: None } => {}
+                // 정정 문구는 확인된 값에서만 씁니다. 확인 전에는 차이가 있다는 사실만 남깁니다.
+                Consistency::Consistent { note: Some(_) } if unverified => notes.push("신청 금액과 계약 월세가 다릅니다".to_string()),
+                Consistency::Consistent { note: Some(note) } => {
+                    record(&mut self.store, now, Actor::ZoroGuardrail, AuditCategory::FactLocked, &case_id, None, note);
+                }
+                Consistency::ClaimContradicted { reason, .. } if soft => notes.push(reason),
                 Consistency::ClaimContradicted { verdict, reason } => {
                     record(&mut self.store, now, Actor::ZoroGuardrail, AuditCategory::ContradictionBlocked, &case_id, None, reason.clone());
                     return Ok(CaseOutcome::KioskRetry { verdict, reason });
                 }
+                // 키오스크 접수는 증빙을 창구에서 봅니다. 민원인에게 스캔을 다시 요구하지 않습니다.
+                Consistency::EvidenceRequested { reason, .. } if kiosk => notes.push(reason),
                 Consistency::EvidenceRequested { verdict, reason } => {
                     return Ok(CaseOutcome::KioskRetry { verdict, reason });
                 }
+                Consistency::OfficerReview { reason } if kiosk => notes.push(reason),
                 Consistency::OfficerReview { reason } => {
                     return self.hold(case, None, reason, now);
                 }
             }
         }
+        let review = case.intake.subsidy.as_ref().map(gate2_consistency::review_receipts);
+        if let Some(r) = &review {
+            if !r.duplicates.is_empty() {
+                notes.push(format!("중복 영수증 {}건을 한 장으로 합침", r.duplicates.len()));
+            }
+            if !r.barred.is_empty() {
+                notes.push(format!("비인정 품목 {}건 제외", r.barred.len()));
+            }
+        }
 
         // Gate 3: 실질 요건 (관계망)
-        let applicant_hash = privacy::node_hash(&self.salt, &case.applicant.identifier);
-        let landlord = case
-            .landlord
-            .as_ref()
-            .map(|p| (privacy::node_hash(&self.salt, &p.identifier), p.name.clone()));
+        // 식별 번호가 없으면 (관계망 미등록) 역할과 접수 번호로 구분한 값을 씁니다. 빈 값끼리 같아지면 같은 사람으로 잘못 봅니다.
+        let identity = |role: &str, id: &str| {
+            if id.is_empty() {
+                privacy::node_hash(&self.salt, &format!("no-identifier:{role}:{case_id}"))
+            } else {
+                privacy::node_hash(&self.salt, id)
+            }
+        };
+        let applicant_hash = identity("applicant", &case.applicant.identifier);
+        let landlord = case.landlord.as_ref().map(|p| (identity("landlord", &p.identifier), p.name.clone()));
         let landlord_ref = landlord.as_ref().map(|(h, n)| (h.as_str(), n.as_str()));
-        let sub = gate3_substantive::evaluate(&case.relations, &applicant_hash, landlord_ref, model)?;
+        let judge = |model: Option<&dyn DecisionModel>| -> Result<Substantive> {
+            match (case.intake.subsidy.as_ref(), case.intake.permit.as_ref(), case.intake.cert.as_ref()) {
+                (Some(s), _, _) => gate3_substantive::evaluate_subsidy(&case.relations, s, review.as_ref().unwrap_or(&ReceiptReview::default()), model),
+                (_, Some(p), _) => gate3_substantive::evaluate_permit(p, case.today, model),
+                (_, _, Some(c)) => {
+                    let days = case.poa_written_on.map(|d| gate1_formal::poa_elapsed_days(d, case.today)).unwrap_or(0);
+                    gate3_substantive::evaluate_cert(days, c, model)
+                }
+                _ => gate3_substantive::evaluate(&case.relations, &applicant_hash, landlord_ref, model),
+            }
+        };
+        let sub = match judge(model) {
+            Ok(s) => s,
+            Err(e) if kiosk => {
+                record(&mut self.store, now, Actor::System, AuditCategory::DecisionRecorded, &case_id, None, format!("Gate 3 모델 실패, 규칙으로 진행: {e}"));
+                judge(None)?
+            }
+            Err(e) => return Err(e),
+        };
         if sub.homonym {
             record(
                 &mut self.store,
@@ -226,16 +301,24 @@ impl Engine {
                 format!("가까운 연결 {}홉 발견", path.len().saturating_sub(1)),
             );
         }
+        if kiosk {
+            notes.extend(verdict_reason(&case, &sub, review.as_ref()));
+            if case.intake.identity == Identity::Declared {
+                notes.push("본인 확인 필요 (신분증)".to_string());
+            }
+        }
         let judgement = sub.judgement;
 
         // Gate 1~3 규칙 검사를 모두 통과한 뒤에만 자동화 정책을 봅니다. Gate 4·5 는 처분이 정해진 뒤 실행합니다.
-        match self.policy.disposition(&judgement, true, &case_id) {
+        // 창구에서 확인할 일이 남은 건은 규칙 검사가 끝나지 않은 것으로 봅니다 (자동 확정 금지).
+        match self.policy.disposition(&judgement, notes.is_empty(), &case_id) {
             Disposition::AutoFinalize { post_audit } => {
                 let final_code = judgement.verdict.code().to_string();
                 let confidence = judgement.confidence;
                 let verdict = judgement.verdict;
                 self.store.open(ActiveSession {
                     case,
+                    received_at: now,
                     judgement: Some(judgement),
                     reason: String::new(),
                     draft: None,
@@ -255,7 +338,10 @@ impl Engine {
                     now,
                 )
             }
-            Disposition::PendingOfficer { reason } => self.hold(case, Some(judgement), reason, now),
+            Disposition::PendingOfficer { reason } => {
+                let reason = if notes.is_empty() { reason } else { notes.join(" · ") };
+                self.hold(case, Some(judgement), reason, now)
+            }
         }
     }
 
@@ -267,19 +353,41 @@ impl Engine {
         decision: OfficerDecision,
         now: DateTime<Utc>,
     ) -> Result<CaseOutcome> {
-        let (candidate, report) = {
+        let (candidate, report, source) = {
             let Some(session) = self.store.active(case_id) else {
                 bail!("진행 중인 민원이 아닙니다: {case_id}");
             };
-            (session.judgement.clone(), gate1_formal::check_documents(&session.case))
+            (session.judgement.clone(), gate1_formal::check_documents(&session.case), session.case.source)
         };
         let officer = Some(officer_id.to_string());
 
         match decision {
             OfficerDecision::Confirm | OfficerDecision::Reject => {
+                // 양식 입력 건은 창구에서 원본을 모두 확인해야 확정할 수 있습니다. 확정이 막혀도 세션은 남습니다.
+                if decision == OfficerDecision::Confirm && source == CaseSource::KioskForm && !report.missing.is_empty() {
+                    record(
+                        &mut self.store,
+                        now,
+                        Actor::ZoroGuardrail,
+                        AuditCategory::IllegalActionIntercepted,
+                        case_id,
+                        Some(officer_id),
+                        format!("누락 서류({})를 둔 채 확정 시도 → 차단", report.missing.join(", ")),
+                    );
+                    return Ok(CaseOutcome::Blocked {
+                        verdict: Verdict::G1InterceptForceHold,
+                        reason: format!("확인되지 않은 서류가 있습니다: {}. 원본을 확인하거나 보완요구(7일)를 발급하세요", report.missing.join(", ")),
+                    });
+                }
                 let Some(j) = candidate else {
                     return Ok(no_candidate());
                 };
+                if decision == OfficerDecision::Confirm && j.verdict.class() == OutcomeClass::Procedural {
+                    return Ok(CaseOutcome::OfficerReview {
+                        judgement: Some(j),
+                        reason: "증빙이 모자란 건은 확정할 수 없습니다. 인정 금액을 줄이거나 보완요구를 발급하세요".into(),
+                    });
+                }
                 let (form, final_code) = if decision == OfficerDecision::Reject {
                     (Form::RejectNotice, format!("OFFICER_REJECT:{}", j.verdict.code()))
                 } else if j.verdict.class() == OutcomeClass::Favorable {
@@ -366,7 +474,8 @@ impl Engine {
                 }
             }
             OfficerDecision::IssueSupplement => {
-                if report.is_complete() {
+                let short_of_receipts = candidate.as_ref().is_some_and(|j| j.verdict == Verdict::G3HoldSimpleReceiptMissing);
+                if report.is_complete() && !short_of_receipts {
                     return Ok(CaseOutcome::OfficerReview {
                         judgement: candidate,
                         reason: "누락된 서류가 없어 보완요구 대상이 아닙니다".into(),
@@ -484,8 +593,10 @@ impl Engine {
             None,
             format!("공무원 확인 대기: {reason}"),
         );
+        let received_at = case.intake.received_at.unwrap_or(now);
         self.store.open(ActiveSession {
             case,
+            received_at,
             judgement: judgement.clone(),
             reason: reason.clone(),
             draft,
@@ -499,12 +610,13 @@ impl Engine {
         let officer = officer_id.as_deref();
 
         // 세션에서 필요한 값만 꺼냅니다.
-        let (today, supplement_count, report, third_party, lease, reason) = {
+        let (category, today, supplement_count, report, third_party, lease, reason) = {
             let Some(session) = self.store.active(case_id) else {
                 bail!("진행 중인 민원이 아닙니다: {case_id}");
             };
             let case = &session.case;
             (
+                case.category,
                 case.today,
                 case.supplement_count,
                 gate1_formal::check_documents(case),
@@ -534,7 +646,7 @@ impl Engine {
         };
 
         // Gate 4-B: 민원인 교부용 문서에 내부 용어나 제3자 실명이 있으면 막습니다.
-        let citizen_doc = citizen_notice(case_id, form, notice, today);
+        let citizen_doc = citizen_notice(case_id, category, form, notice, today);
         if let Err((verdict, leaks)) = g45::check_citizen_text(&citizen_doc, &third_party) {
             record(
                 &mut self.store,
@@ -619,6 +731,33 @@ fn opinion_facts(lease: Option<&LeaseFacts>, final_code: &str, reason: &str) -> 
     facts
 }
 
+/// 공무원이 왜 이 건을 봐야 하는지 한 줄로 적습니다. 공무원 화면에만 나갑니다.
+fn verdict_reason(case: &CaseFile, sub: &Substantive, review: Option<&ReceiptReview>) -> Option<String> {
+    let hops = sub.close_path.as_ref().map(|p| p.len().saturating_sub(1));
+    match sub.judgement.verdict {
+        Verdict::G3ViolationHighRisk => match case.intake.permit.as_ref() {
+            Some(p) => Some(match (&p.building_violation, &p.building_use) {
+                (Some(v), _) => format!("위반건축물: {v}"),
+                (None, Some(u)) => format!("건축물 용도가 맞지 않습니다: {u}"),
+                _ => "영업신고 요건을 확인해 주세요".to_string(),
+            }),
+            None => Some(format!("임대인과 가까운 연결이 관계망에 있습니다 ({}홉)", hops.unwrap_or(0))),
+        },
+        Verdict::G3ViolationRelatedVendorSplit => {
+            let mut parts = Vec::new();
+            if let Some(h) = hops {
+                parts.push(format!("거래처 특수관계 {h}홉"));
+            }
+            if let Some(r) = review.filter(|r| !r.splits.is_empty()) {
+                parts.push(format!("분할 결제: {}", r.splits.join(", ")));
+            }
+            Some(parts.join(", "))
+        }
+        Verdict::G3HoldSimpleReceiptMissing => review.map(|r| format!("증빙이 {}원 모자랍니다", r.gap)),
+        _ => None,
+    }
+}
+
 fn no_candidate() -> CaseOutcome {
     CaseOutcome::OfficerReview {
         judgement: None,
@@ -636,13 +775,19 @@ fn missing_reason(report: &FormalReport) -> String {
 }
 
 /// 민원인 교부용 본문. 내부 용어와 제3자 정보를 넣지 않습니다.
-fn citizen_notice(case_id: &str, form: Form, verdict: Option<Verdict>, today: NaiveDate) -> String {
+fn citizen_notice(case_id: &str, category: Category, form: Form, verdict: Option<Verdict>, today: NaiveDate) -> String {
+    let approved = match category {
+        Category::Subsidy => "심사 결과 정산을 승인합니다.",
+        Category::Permit => "심사 결과 영업신고를 수리합니다.",
+        Category::Cert => "심사 결과 발급 신청을 승인합니다.",
+        _ => "심사 결과 지급 요건을 충족하여 승인합니다.",
+    };
     let body = match (form, verdict) {
         (Form::SupplementRequest, _) => format!(
             "누락된 서류를 {}까지 제출해 주세요.",
             gate1_formal::supplement_deadline(today)
         ),
-        (Form::ApprovalNotice, _) => "심사 결과 지급 요건을 충족하여 승인합니다.".to_string(),
+        (Form::ApprovalNotice, _) => approved.to_string(),
         (Form::RejectNotice, Some(Verdict::G1ExpiredMandatoryReject)) => {
             "위임장 작성일이 법정 유효기간을 넘어 재작성이 필요합니다.".to_string()
         }

@@ -7,7 +7,7 @@
 //! 토큰 임베딩처럼 큰 표에서 몇 행만 필요하면 [`WeightFile::gather_rows`] 가 그 행의 바이트만 읽습니다
 //! (zoro q8 의 임베딩 표는 약 675 MB 인데, 프롬프트 한 개에는 수백 행이면 됩니다).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::{Path, PathBuf};
@@ -120,12 +120,21 @@ impl std::fmt::Debug for WeightFile {
     }
 }
 
+/// 프로젝트의 이전 이름(`zeze`)으로 변환한 파일도 같은 키로 읽습니다. 저장소의 gocr · zoro GGUF 가 이 이름을 씁니다.
+fn alias_old_names(metadata: &mut HashMap<String, Value>) {
+    let old: Vec<(String, Value)> = metadata.iter().filter_map(|(k, v)| k.strip_prefix("zeze.").map(|rest| (format!("zorogravity.{rest}"), v.clone()))).collect();
+    for (key, value) in old {
+        metadata.entry(key).or_insert(value);
+    }
+}
+
 impl WeightFile {
     /// 파일 머리만 읽고 나머지는 매핑만 합니다.
     pub fn open(path: &Path) -> Result<Self> {
         let file = File::open(path).with_context(|| format!("GGUF 를 열 수 없습니다: {}", path.display()))?;
-        let content = Content::read(&mut BufReader::new(&file))
+        let mut content = Content::read(&mut BufReader::new(&file))
             .with_context(|| format!("GGUF 머리를 읽을 수 없습니다: {}", path.display()))?;
+        alias_old_names(&mut content.metadata);
         // 모델 파일은 실행 중에 바꾸지 않는다고 봅니다. candle 의 safetensors 읽기도 같습니다.
         let map = unsafe { Mmap::map(&file) }.with_context(|| format!("GGUF 를 매핑할 수 없습니다: {}", path.display()))?;
         Ok(Self { path: path.to_path_buf(), content, map, warmed: Mutex::new(HashSet::new()) })

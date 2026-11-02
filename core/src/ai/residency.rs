@@ -22,8 +22,10 @@ use std::time::Instant;
 use anyhow::{anyhow, bail, Result};
 use candle_core::quantized::QMatMul;
 use candle_core::{DType, Device, Module, Tensor};
+use serde_json::json;
 
 use super::accel;
+use super::trace;
 use super::weights::{TensorMeta, WeightFile};
 
 /// 장치에 올릴 가중치 합계의 상한(MB)을 직접 정하는 환경 변수
@@ -649,6 +651,11 @@ impl Residency {
     }
 
     fn record(&mut self, t: Transition) {
+        let step = match t.action {
+            Action::Load => "올림",
+            Action::Release => "내림",
+        };
+        trace::record(t.model.name(), step, t.millis as f64, json!({ "group": t.group.to_string(), "bytes": t.bytes, "free_after": t.free_after }));
         if self.history.len() >= HISTORY_LIMIT {
             self.history.drain(..HISTORY_LIMIT / 2);
         }
