@@ -421,14 +421,12 @@ def bar(d, x, y, width, value, color, height=20):
 
 def draw_decision(canvas, d, s, p):
     questions = s["questions"]
-    e = questions[-1]
     model_head(d, "Zoro-1 판단", "글을 쓰지 않고 선택지를 가리킵니다", ORANGE)
     x0, y0 = AREA[0] + 24, AREA[1] + 82
     left = 560
     d.text((x0, y0), "모델에 주는 사실 (이름 · 번호 · 계좌 없음)", font=font(24, True), fill=TEXT)
     y = y0 + 44
-    facts = next((q for q in questions if q["detail"]["task"] != "민원 종류 분류"), e)["detail"]["facts"]
-    for key, value in facts:
+    for key, value in questions[0]["detail"]["facts"]:
         d.rectangle((x0, y, x0 + left, y + 4), fill=PANEL2)
         y += 12
         d.text((x0, y), key, font=font(21), fill=MUTED)
@@ -446,8 +444,6 @@ def draw_decision(canvas, d, s, p):
     for i, q in enumerate(questions[:upto]):
         detail = q["detail"]
         title = detail["task"].replace("임차 요건 심사 중 ", "").replace("보조금 집행 심사 중 ", "").replace("영업신고 수리 심사 중 ", "").replace("위임장 유효성 심사 중 ", "").replace(" 만 판단", "")
-        if detail["task"] == "민원 종류 분류":
-            title += " (의견만, 분류는 접수 양식)"
         d.text((tx, yy), title, font=font(24, True), fill=TEXT)
         d.text((tx + width - 90, yy + 2), f"{q['ms'] / 1000:.1f}초", font=font(20), fill=MUTED)
         yy += 36
@@ -680,7 +676,7 @@ def verdict_note(questions, rule):
         if low >= 0.95:
             return f"기준별 최솟값 {low:.3f} ≥ 기준 0.95 → 확신도 조건 충족", GREEN
         return f"기준별 최솟값 {low:.3f} < 기준 0.95 → 자동 확정하지 않습니다", RED
-    last = next(q for q in reversed(questions) if q["detail"]["task"] != "민원 종류 분류")["detail"]
+    last = questions[-1]["detail"]
     prob, code = max(zip(last["probabilities"], last["options"]))
     name = OPTION_LABEL.get(code, code)
     rule_name = OPTION_LABEL.get(rule, rule)
@@ -747,14 +743,13 @@ def build_scenes(marks, end, trace, skip, cases_root, scenarios):
                 if cfg.get("language"):
                     cuts.append({**common, "kind": "gocr_language", "t0": lang["start"], "t1": lang["end"], "shown": 7.0, "event": lang, "result": result, "only_page": "진정서", "label": "gocr 언어: 손글씨 진정서를 읽습니다", "note": "손글씨도 같은 경로로 읽습니다. 오독은 민원인이 화면에서 고칩니다"})
         decisions = [e for e in trace.between(m["t"], t1 + 0.4, key="zoro_j")]
-        gate3 = [e for e in decisions if e["detail"]["task"] != "민원 종류 분류"]
         writers = trace.between(m["t"], t1 + 0.4, key="zoro_w")
         if decisions and not is_scan and "note" not in base:
             base["note"] = "규칙이 판정하고, Zoro-1 은 같은 질문의 확률을 냅니다" + (". 이어서 심사 의견 초안을 씁니다" if writers else "")
         common = {"track": m["track"], "title": titles.get(flow, ""), "flow_start": starts.get(flow), "screen": "kiosk", "flow": flow}
         if flow in FLOW_NOTE and not is_scan and "note" not in base:
             base["note"] = FLOW_NOTE[flow]
-        if cfg.get("decide") and gate3 and not cfg.get("_decided"):
+        if cfg.get("decide") and decisions and not cfg.get("_decided"):
             cfg["_decided"] = True
             rule = scenarios[FLOW_SCENARIO[flow]]["expect"]["verdict"]
             note, color = verdict_note(decisions, rule)

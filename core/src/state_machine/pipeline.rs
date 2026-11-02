@@ -118,15 +118,7 @@ impl Engine {
         let model = self.model.as_deref();
         let kiosk = case.source == CaseSource::KioskForm;
 
-        // Gate 0: 분류 (접수 양식이 규칙, Zoro-1 은 의견)
-        let routed = match gate0_router::route(&case, model) {
-            Ok(j) => j,
-            Err(e) if kiosk => {
-                record(&mut self.store, now, Actor::System, AuditCategory::DecisionRecorded, &case_id, None, format!("Gate 0 모델 실패, 규칙으로 진행: {e}"));
-                Judgement::by_rule(gate0_router::verdict_of(case.category))
-            }
-            Err(e) => return Err(e),
-        };
+        // Gate 0: 분류 (접수 양식이 정합니다)
         record(
             &mut self.store,
             now,
@@ -134,7 +126,7 @@ impl Engine {
             AuditCategory::DecisionRecorded,
             &case_id,
             None,
-            format!("분류: {}", routed.verdict.code()),
+            format!("분류: {}", gate0_router::verdict_of(case.category).code()),
         );
         if case.category == Category::Grievance {
             let draft = self.summarize(&case, now);

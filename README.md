@@ -15,7 +15,7 @@
 
 | 영역 | 상태 |
 | --- | --- |
-| 5-Gate 규칙 엔진 (Gate 0~5) · 엔드투엔드 (명세 사례) | 구현 · 단위 테스트 335개 + 양식 흐름 15개 + 엔드투엔드 23개 + N:N 5개 통과 (모델 파일이 필요한 점검은 `--ignored`, `real_models` 14개) |
+| 5-Gate 규칙 엔진 (Gate 0~5) · 엔드투엔드 (명세 사례) | 구현 · 단위 테스트 335개 + 양식 흐름 15개 + 엔드투엔드 24개 + N:N 5개 통과 (모델 파일이 필요한 점검은 `--ignored`, `real_models` 14개) |
 | 자동화 정책 · 감사 로그 · 비식별 해시 | 구현 |
 | 관계망 멀티홉 · 동명이인 판별 (사건 범위) | 구현. 정부 API 없이 **합성 관계망 · 대장**을 DB 에 미리 넣어 진행합니다 ([docs/synthetic-data.md](docs/synthetic-data.md)) |
 | 판단 모델 인터페이스 (`DecisionModel`) | 구현. 게이트가 식별 정보 없는 사실과 선택지로 질문을 만듭니다 |
@@ -214,7 +214,7 @@ zorogravity/
 
 - 명세의 Python `ai-engine` 과 Tauri `src-tauri` 대신, AI 와 규칙을 Rust `core` 에 모았습니다. Tauri 앱(`app/src-tauri`)은 `core` 를 감싸는 얇은 층입니다.
 - 명세의 거짓 소명 행동 페널티(+8.2%)는 구현하지 않았습니다. 이유는 [docs/automation-mode.md](docs/automation-mode.md) 5절에 있습니다.
-- 민원 분류는 접수 양식 코드가 규칙이고, 모델은 의견만 냅니다.
+- 민원 분류는 접수 양식 코드가 정하고, 모델에는 묻지 않습니다.
 - 사건 간 관계망 누적은 아직 없습니다. HWP 생성은 `tools/hwp-builder` 에 있지만 심사 흐름에는 연결하지 않았습니다.
 - 명세의 연계 데이터는 합성 DB 로 대신합니다 ([docs/synthetic-data.md](docs/synthetic-data.md)).
 
