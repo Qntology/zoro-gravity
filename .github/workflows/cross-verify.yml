@@ -102,8 +102,8 @@ jobs:
         shell: bash
         working-directory: app
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: "22"
           cache: npm
@@ -133,7 +133,7 @@ jobs:
       TEST_ARGS: --locked --workspace --exclude zorogravity-app --no-default-features --features zorogravity-models/download${{ matrix.features && format(',{0}', matrix.features) || '' }}
       APP_ARGS: --locked -p zorogravity-app --no-default-features${{ matrix.features && format(' --features {0}', matrix.features) || '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with: { path: zoro-gravity }
       - name: 러너 환경 (설정 전)
         run: bash zoro-gravity/.github/scripts/env-report.sh before-setup
@@ -144,7 +144,7 @@ jobs:
           toolchain: ${{ env.RUST_VERSION }}
       # 여기서 복원하고 맨 끝에서 저장합니다. 합친 actions/cache 는 성공한 작업만 저장해서 계속 실패하는 작업이 매번 처음부터 빌드합니다.
       - id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: |
             ~/.cargo/registry
@@ -253,7 +253,7 @@ jobs:
       - name: 빌드 캐시 저장 (실패해도, 같은 키가 없을 때만)
         if: always() && steps.cache.outputs.cache-hit != 'true'
         continue-on-error: true
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         with:
           path: |
             ~/.cargo/registry

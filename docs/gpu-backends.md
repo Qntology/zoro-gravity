@@ -1,4 +1,4 @@
-# GPU 백엔드 (Vulkan · ROCm/HIP · CUDA)
+# GPU 백엔드 (Vulkan · ROCm/HIP · CUDA · Metal)
 
 AI 엔진은 candle 입니다. AMD GPU 연동은 [Qntology/candle-rocm-vulkan](https://github.com/Qntology/candle-rocm-vulkan) 포크(candle 0.11.0 기반)를 씁니다.
 포크는 `Cargo.toml` 의 `[patch.crates-io]` 로 `candle-core` · `candle-nn` 을 바꾸고, `candle-rocm` 크레이트로 ROCm 을 붙입니다.
@@ -16,11 +16,12 @@ AI 엔진은 candle 입니다. AMD GPU 연동은 [Qntology/candle-rocm-vulkan](h
 | **Vulkan** (기본) | `vulkan` | 드라이버의 `vulkan-1.dll`. SDK 불필요 | ✅ 동작 확인 |
 | **ROCm/HIP** | `rocm` | HIP SDK 7.2 (`hipcc`, `amdhip64`, `rocblas`), **MSVC 14.44 툴셋** | ✅ 동작 확인 (2절) |
 | **CUDA** | `cuda` | NVIDIA 드라이버, CUDA Toolkit (`nvcc`), Windows 는 MSVC | ⚠️ 빌드 · 실행 미검증 (2.1절) |
+| **Metal** | `metal` | macOS. 따로 설치할 것 없음 | 해당 없음 (2.2절) |
 
-`ZOROGRAVITY_DEVICE` 로 고릅니다. `auto`(기본)는 CUDA → ROCm → Vulkan → CPU 순서로 처음 열리는 장치를 씁니다.
+`ZOROGRAVITY_DEVICE` 로 고릅니다. `auto`(기본)는 CUDA → ROCm → Metal → Vulkan → CPU 순서로 처음 열리는 장치를 씁니다. 맥의 Vulkan(MoltenVK)은 Metal 위에서 도는 변환 층이라서 Metal 을 먼저 봅니다.
 
 ```bat
-set ZOROGRAVITY_DEVICE=vulkan   :: auto | cuda | rocm | vulkan | cpu
+set ZOROGRAVITY_DEVICE=vulkan   :: auto | cuda | rocm | metal | vulkan | cpu
 ```
 
 빌드부터 실행까지 한 번에 하려면 `run/` 의 스크립트를 쓰세요 ([README](../README.md) 의 "실행 스크립트").
@@ -198,8 +199,8 @@ zorogravity 는 포크를 고치지 않고 올리기 전후의 장치 여유 메
 
 | 변수 | 기본값 | 뜻 |
 | --- | --- | --- |
-| `ZOROGRAVITY_DEVICE` | `auto` | `auto` · `cuda` · `rocm` · `vulkan` · `cpu` |
-| `ZOROGRAVITY_GPU` | 자동 | GPU 번호. 없으면 CUDA · ROCm 은 여유 VRAM 이 가장 많은 GPU, Vulkan 은 0번 (logis-center 와 같음) |
+| `ZOROGRAVITY_DEVICE` | `auto` | `auto` · `cuda` · `rocm` · `metal` · `vulkan` · `cpu` |
+| `ZOROGRAVITY_GPU` | 자동 | GPU 번호. 없으면 CUDA · ROCm 은 여유 VRAM 이 가장 많은 GPU, Metal · Vulkan 은 0번 (logis-center 와 같음) |
 | `ZOROGRAVITY_ACCEL_CHECK` | 켜짐 | `off` 이면 커널 자가 검증을 건너뜁니다 (진단용으로만) |
 | `CANDLE_VULKAN_NATIVE` | 자동 (독립 GPU 는 꺼짐) | `1` 이면 Vulkan 네이티브 element-wise · softmax · reduce 커널을 강제로 씁니다 |
 | `CANDLE_VULKAN_DEBUG` | 꺼짐 | `1` 이면 커널이 CPU 로 되돌아간 이유를 출력합니다 |

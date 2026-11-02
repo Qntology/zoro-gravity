@@ -2,7 +2,7 @@
 
 공무원 민원 심사(5-Gate)를 Zoro-1 판단 헤드로 돕는 로컬 엔진입니다. 원본 명세는 `zorogravity.txt` 입니다.
 
-- **AI 엔진**: [candle](https://github.com/huggingface/candle) (Rust). AMD GPU 는 [candle-rocm-vulkan](https://github.com/Qntology/candle-rocm-vulkan) 포크로 ROCm/HIP 과 Vulkan 에 연결합니다.
+- **AI 엔진**: [candle](https://github.com/huggingface/candle) (Rust). AMD GPU 는 [candle-rocm-vulkan](https://github.com/Qntology/candle-rocm-vulkan) 포크로 ROCm/HIP 과 Vulkan 에 연결하고, 맥은 같은 포크의 Metal 백엔드를 씁니다.
 - **모델**: 앱 데이터 폴더의 `models/siglip2` (크롭), `models/gocr` (문서 인식), `models/zoro` (판단). 모두 GGUF 로 바꿔 쓰고, 지금은 **q8** 입니다 (비전 가중치는 BF16). 폴더와 내려받기는 아래 "모델 폴더와 다운로드"에 있습니다. 다른 모델(Qwen3.5 등)은 쓰지 않습니다. 명세의 `indra-ocr` 은 라이선스 문제로 쓰지 않습니다.
 - **문서 읽기**: 기울기 보정 → 잉크 분석으로 조각 나누기 → SigLIP2 로 제목 · 표 · 서명 · 안내문 판정 → gocr 비전 → gocr 언어. [docs/document-crop.md](docs/document-crop.md)
 - **zoro 백본**: 텍스트 순전파를 직접 구현했습니다 (`core/src/ai/zoro`). 실제 가중치로 "The capital of France is" → `" Paris"` 를 확인했습니다. [docs/zoro-backbone.md](docs/zoro-backbone.md)
@@ -27,7 +27,8 @@
 | 문서 크롭 (SigLIP2) | **구현** (`ai::siglip2`, 직접 작성). 패치 경쟁(NMS)과 크롭 NMS 포함. 합성 서식으로 평가했고 **실제 스캔으로는 학습 · 평가 전**. [docs/document-crop.md](docs/document-crop.md) |
 | 문서 묶음 읽기 · 항목 추출 | **구현** (`ai::document`, `extract`). 픽셀 계산은 병렬, 모델은 단계마다 한 번만 올립니다. 서류 종류 · 항목 · 서명을 뽑고, 글자 신뢰도가 낮은 값은 사람에게 넘깁니다. 합성 서류로만 평가했습니다 |
 | 모델 양자화 (GGUF Q4 · Q8, 비전 BF16) | 구현 · gocr · zoro 모두 q8 선택. [docs/model-quantization.md](docs/model-quantization.md) |
-| 장치 선택 · 커널 자가 검증 (ROCm · Vulkan · CPU) | 구현 · 실측은 아래 |
+| 장치 선택 · 커널 자가 검증 (CUDA · ROCm · Metal · Vulkan · CPU) | 구현 · 실측은 아래 |
+| CI (Linux · macOS · Windows) | 구현 (`cross-verify`). 푸시마다 시험 전체와 장치 시험을 돌립니다. [docs/ci.md](docs/ci.md) |
 | HWP 문서 생성 (rhwp) | 구현 (`tools/hwp-builder`, 내부결재용 · 교부용, 금지어 · 확정 수치 검사). 심사 흐름과 앱 편집기에는 아직 연결 안 됨 |
 | 모델 다운로드 · 삭제 (AppData, 진행률 표시) | 구현 (`tools/model-settings`, 앱 설정 화면) |
 | KV 캐시 FP8 (ROCm · Vulkan · CUDA) | 구현 (`ai::kv_turbo`). CPU 단위 테스트만 통과했고 **GPU 에서는 아직 돌려 보지 않았습니다** |
@@ -39,13 +40,13 @@
 
 백엔드마다 빌드부터 실행까지 한 번에 합니다. Windows 는 더블클릭, 맥은 `.command` 더블클릭, 리눅스는 터미널에서 실행합니다.
 
-| OS | CUDA | ROCm | Vulkan |
-| --- | --- | --- | --- |
-| Windows | `run\windows\cuda.bat` | `run\windows\rocm.bat` | `run\windows\vulkan.bat` |
-| Linux | `run/linux/cuda.sh` | `run/linux/rocm.sh` | `run/linux/vulkan.sh` |
-| macOS | 지원 안 됨 | 지원 안 됨 | `run/macos/vulkan.command` |
+| OS | CUDA | ROCm | Metal | Vulkan |
+| --- | --- | --- | --- | --- |
+| Windows | `run\windows\cuda.bat` | `run\windows\rocm.bat` | 지원 안 됨 | `run\windows\vulkan.bat` |
+| Linux | `run/linux/cuda.sh` | `run/linux/rocm.sh` | 지원 안 됨 | `run/linux/vulkan.sh` |
+| macOS | 지원 안 됨 | 지원 안 됨 | `run/macos/metal.command` | `run/macos/vulkan.command` |
 
-앱은 `run\windows\app.bat` · `run/linux/app.sh` · `run/macos/app.command` 로 실행합니다. AMD GPU 는 `run\windows\app-rocm.bat` 를 씁니다. 스캐너 입력은 `ZOROGRAVITY_SCANNER_DIR` 폴더(기본 `%LOCALAPPDATA%\zorogravity\scanner`)의 이미지로 대신합니다. `ZOROGRAVITY_ENGINE=rules` 면 모델 없이 규칙만으로 돕니다. `ZOROGRAVITY_TRACE=<파일>` 을 주면 모델이 언제 무엇을 했는지 남깁니다 (`core/src/ai/trace.rs`).
+앱은 `run\windows\app.bat` · `run/linux/app.sh` · `run/macos/app.command` 로 실행합니다. 맥의 앱은 Metal 로 돕니다. AMD GPU 는 `run\windows\app-rocm.bat` 를 씁니다. 스캐너 입력은 `ZOROGRAVITY_SCANNER_DIR` 폴더(기본 `%LOCALAPPDATA%\zorogravity\scanner`)의 이미지로 대신합니다. `ZOROGRAVITY_ENGINE=rules` 면 모델 없이 규칙만으로 돕니다. `ZOROGRAVITY_TRACE=<파일>` 을 주면 모델이 언제 무엇을 했는지 남깁니다 (`core/src/ai/trace.rs`).
 
 ```bat
 :: 기본은 판단 경로 전체를 도는 decide_probe 입니다. 예제 이름과 인자를 주면 그 예제를 돌립니다.
@@ -53,9 +54,9 @@ run\windows\vulkan.bat
 run\windows\rocm.bat read_page 이미지.jpg
 ```
 
-- 결과물은 `target-cuda` · `target-rocm` · `target` 의 `release\examples` 에 생깁니다.
+- 결과물은 `target-cuda` · `target-rocm` · `target-metal` · `target` 의 `release\examples` 에 생깁니다.
 - 공통으로 이 저장소 옆에 `candle-rocm-vulkan` 이 있어야 하고, 모델은 앱 데이터 폴더에 받아 두어야 합니다 (아래 "모델 폴더와 다운로드").
-- **CUDA** 는 CUDA Toolkit(`nvcc`)이, **ROCm** 은 HIP SDK 가, **Vulkan** 은 GPU 드라이버가 있어야 합니다. 맥의 Vulkan 은 `brew install vulkan-loader molten-vk` 로 설치합니다.
+- **CUDA** 는 CUDA Toolkit(`nvcc`)이, **ROCm** 은 HIP SDK 가, **Vulkan** 은 GPU 드라이버가 있어야 합니다. **Metal** 은 따로 설치할 것이 없습니다. 맥의 Vulkan 은 `brew install vulkan-loader molten-vk` 로 설치합니다.
 - 맥의 `cuda.command` · `rocm.command` 는 안내만 하고 끝납니다. macOS 용 ROCm 은 없고 CUDA 는 10.2 를 끝으로 지원이 끊겼습니다.
 - 이 PC 에서 돌려 본 것은 Windows 의 Vulkan · ROCm 입니다. CUDA, 리눅스, 맥은 **실행해 보지 않았습니다**. 특히 맥의 Vulkan(MoltenVK)은 이 프로젝트에서 한 번도 측정한 적이 없습니다.
 
@@ -111,7 +112,7 @@ cargo build -p zorogravity-gguf
 target\debug\zorogravity-gguf.exe auto %LOCALAPPDATA%\zorogravity\models\zoro
 ```
 
-장치 선택은 `ZOROGRAVITY_DEVICE=auto|cuda|rocm|vulkan|cpu` 입니다. 기본 `auto` 는 CUDA → ROCm → Vulkan → CPU 순서로 처음 열리는 장치를 씁니다.
+장치 선택은 `ZOROGRAVITY_DEVICE=auto|cuda|rocm|metal|vulkan|cpu` 입니다. 기본 `auto` 는 CUDA → ROCm → Metal → Vulkan → CPU 순서로 처음 열리는 장치를 씁니다.
 메모리 관련 환경 변수(`ZOROGRAVITY_VRAM_BUDGET_MB`, `ZOROGRAVITY_ZORO_STREAM_BLOCKS`, `ZOROGRAVITY_KV_PRECISION` 등)는 [docs/weight-residency.md](docs/weight-residency.md) 에 있습니다.
 
 판단 모델을 엔진에 꽂는 방법:
@@ -197,7 +198,9 @@ zorogravity/
 ├── app/                    Tauri + React 앱: 키오스크 · 공무원 콘솔 창, 모델 설정 화면
 ├── run/                    백엔드별 실행 스크립트 (windows · linux · macos)
 ├── scripts/                ROCm · CUDA 빌드 환경, 실행 스크립트 공용 부분, 평가 · 학습 스크립트
+├── .github/                CI: cross-verify 워크플로와 보조 스크립트
 └── docs/
+    ├── ci.md                  CI 작업별 범위 · 대상 고르기 · rhwp 처리
     ├── stabilization-report.md 안정화 기준 · 층별 검증 결과 · 절차 비교
     ├── synthetic-data.md      합성 관계망 · 대장의 정의
     ├── kiosk-form-plan.md     민원 화면 기획과 구현 기록
