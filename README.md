@@ -212,10 +212,10 @@ zorogravity/
 
 ## 명세와 다른 점
 
-- 명세의 Python `ai-engine` 과 Tauri `src-tauri` 대신, AI 와 규칙을 Rust `core` 에 모았습니다. Tauri 는 나중에 `core` 를 감싸는 얇은 층으로 붙입니다.
+- 명세의 Python `ai-engine` 과 Tauri `src-tauri` 대신, AI 와 규칙을 Rust `core` 에 모았습니다. Tauri 앱(`app/src-tauri`)은 `core` 를 감싸는 얇은 층입니다.
 - 명세의 거짓 소명 행동 페널티(+8.2%)는 구현하지 않았습니다. 이유는 [docs/automation-mode.md](docs/automation-mode.md) 5절에 있습니다.
 - 민원 분류는 접수 양식 코드가 규칙이고, 모델은 의견만 냅니다.
-- 사건 간 관계망 누적과 HWP 바이너리 생성은 아직 없습니다.
+- 사건 간 관계망 누적은 아직 없습니다. HWP 생성은 `tools/hwp-builder` 에 있지만 심사 흐름에는 연결하지 않았습니다.
 - 명세의 연계 데이터는 합성 DB 로 대신합니다 ([docs/synthetic-data.md](docs/synthetic-data.md)).
 
 ## 알려진 문제
