@@ -65,8 +65,8 @@ jobs:
           want = None if t == "all" else set(t.split(","))
           inc = [
             dict(name="mac-cpu", os="macos-15", kind="run", features=""),
-            dict(name="mac-metal", os="macos-15", kind="run", features="metal", device="metal"),
-            dict(name="mac-vulkan", os="macos-15", kind="run", features="vulkan", device="vulkan"),
+            dict(name="mac-metal", os="macos-26", kind="run", features="metal", device="metal"),
+            dict(name="mac-vulkan", os="macos-26", kind="run", features="vulkan", device="vulkan"),
             dict(name="linux-cpu", os="ubuntu-latest", kind="run", features=""),
             dict(name="linux-vulkan", os="ubuntu-latest", kind="run", features="vulkan", device="vulkan"),
             dict(name="linux-cuda", os="ubuntu-latest", kind="cuda-check", features="cuda"),
