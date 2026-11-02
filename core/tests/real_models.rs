@@ -351,6 +351,7 @@ fn clean_welfare(id: &str, relations: Vec<Relation>) -> CaseFile {
     CaseFile {
         case_id: id.into(),
         category: Category::Welfare,
+        source: Default::default(),
         docs: vec![doc("신청서", "h1"), doc("임대차계약서", "h2"), doc("이체내역서", "h3"), doc("금융정보동의서", "h4")],
         applicant: Person { name: "김철수".into(), birth_prefix: "990101".into(), identifier: "9901011234567".into() },
         landlord: Some(Person { name: "박영희".into(), birth_prefix: "640312".into(), identifier: "6403122345678".into() }),
@@ -363,6 +364,8 @@ fn clean_welfare(id: &str, relations: Vec<Relation>) -> CaseFile {
         relations,
         supplement_count: 0,
         grievance_text: None,
+        contact: None,
+        intake: Default::default(),
     }
 }
 

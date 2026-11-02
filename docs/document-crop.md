@@ -164,5 +164,6 @@ target-rocm\release\examples\read_page.exe 이미지.jpg 정답.json
 
 - 실제 스캔으로 학습한 앵커와 그 평가
 - gocr 언어 디코딩의 묶음 처리
-- 읽은 글을 항목별 사실(`ocr_extracted_facts`)로 바꾸는 단계
 - 인쇄 · 수기 구분 (`is_printed`)
+
+읽은 글을 항목별 사실로 바꾸는 단계는 `core/src/extract.rs` 입니다. 결과는 [stabilization-report.md](stabilization-report.md) 3.2 에 있습니다.

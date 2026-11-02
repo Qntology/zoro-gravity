@@ -8,9 +8,13 @@
 //! 모델 폴더에는 이 포인터를 위한 전용 토큰이 없어서 (Qwen2 방식 토크나이저 + `<|mask|>` 뿐), 위 약속은 파일에서 읽은 것이 아니라
 //! 정답 사례로 재서 고른 것입니다. 선택지 위치만 판단을 크게 바꿨습니다 (docs/jev-head.md 6절).
 
+use std::time::Instant;
+
 use anyhow::{Result, bail};
+use serde_json::json;
 
 use super::jev_head::{HIDDEN, JevHead};
+use super::trace;
 use crate::decision::{DecisionModel, DecisionTask};
 
 /// 시스템 지시문. 형식이 바뀌면 점수의 의미가 달라지므로 이곳 한 군데에만 둡니다.
@@ -97,6 +101,7 @@ impl DecisionModel for PointerModel {
         if task.options.is_empty() {
             bail!("선택지가 없습니다");
         }
+        let t = Instant::now();
         let prompt = PointerPrompt::render(task);
         let hidden = self.backbone.encode(&prompt)?;
         if hidden.query.len() != HIDDEN {
@@ -106,7 +111,13 @@ impl DecisionModel for PointerModel {
         if hidden.options.len() != expected {
             bail!("선택지 은닉 상태 길이 {} != {expected}", hidden.options.len());
         }
-        self.head.probabilities(&hidden.query, &hidden.options)
+        let probabilities = self.head.probabilities(&hidden.query, &hidden.options)?;
+        if trace::enabled() {
+            let facts: Vec<_> = task.facts.iter().map(|f| json!([f.key, f.value])).collect();
+            let options: Vec<_> = task.options.iter().map(|o| o.code()).collect();
+            trace::record("zoro", "판단", t.elapsed().as_secs_f64() * 1e3, json!({ "task": task.title, "facts": facts, "options": options, "probabilities": probabilities }));
+        }
+        Ok(probabilities)
     }
 }
 

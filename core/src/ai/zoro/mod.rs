@@ -17,6 +17,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use anyhow::{bail, Context, Result};
+use serde_json::json;
 
 use self::model::{rows_to_host, GenerateOptions, StreamMode, ZoroModel};
 use super::gguf_model::load_active;
@@ -25,6 +26,7 @@ use super::pointer::{Backbone, PointerHidden, PointerModel, PointerPrompt};
 use super::residency::SharedResidency;
 use super::speculative::{BlockDiffusion, Speculation};
 use super::tokenizer::{token_covering, ModelTokenizer};
+use super::trace;
 use super::weights::WeightFile;
 use crate::drafting::{through_last_sentence, TextWriter};
 
@@ -117,8 +119,15 @@ impl ZoroBackbone {
         let ids = self.tokenizer.encode(&prompt)?.ids;
         let stop = STOP_TOKENS.iter().filter_map(|t| self.tokenizer.token_to_id(t)).collect();
         let out = self.model.generate(&ids, &GenerateOptions::new(max_tokens, stop).with_speculation(speculation))?;
+        let text = self.tokenizer.decode(&out.tokens)?;
+        if trace::enabled() {
+            let shown = if trace::with_text() { text.as_str() } else { "" };
+            // 지시문은 고정된 글이라 민원 내용이 없습니다. 입력은 남기지 않습니다.
+            let detail = json!({ "system": system, "tokens": out.tokens.len(), "reads": out.reads, "drafted": out.drafted, "accepted": out.accepted, "text": shown });
+            trace::record("zoro", "글쓰기", out.prefill_ms + out.decode_ms, detail);
+        }
         Ok(Written {
-            text: self.tokenizer.decode(&out.tokens)?,
+            text,
             tokens: out.tokens.len(),
             finished: out.finished,
             min_confidence: out.confidences.iter().copied().fold(1.0, f32::min),
@@ -160,6 +169,29 @@ impl TextWriter for ZoroBackbone {
         let w = self.write(system, user, max_tokens)?;
         Ok(if w.finished { w.text } else { through_last_sentence(&w.text).to_string() })
     }
+}
+
+/// 판단과 글쓰기가 함께 쓰는 백본 (명세의 듀얼 헤드)
+#[derive(Clone)]
+pub struct SharedBackbone(pub Arc<ZoroBackbone>);
+
+impl Backbone for SharedBackbone {
+    fn encode(&self, prompt: &PointerPrompt) -> Result<PointerHidden> {
+        self.0.encode(prompt)
+    }
+}
+
+impl TextWriter for SharedBackbone {
+    fn complete(&self, system: &str, user: &str, max_tokens: usize) -> Result<String> {
+        self.0.complete(system, user, max_tokens)
+    }
+}
+
+/// 판단 모델과 글쓰기 모델을 한 백본으로 엽니다. 가중치는 쓸 때 단계별로 올라옵니다.
+pub fn open_engine_models(model_dir: &Path, residency: SharedResidency) -> Result<(PointerModel, SharedBackbone)> {
+    let backbone = SharedBackbone(Arc::new(ZoroBackbone::open(model_dir, residency)?));
+    let head = JevHead::from_safetensors(&model_dir.join("jev_head.safetensors"))?;
+    Ok((PointerModel::new(Box::new(backbone.clone()), head), backbone))
 }
 
 /// zoro 백본과 `jev_head` 로 판단 모델을 만듭니다. `residency` 는 gocr 등 다른 모델과 공유해야 "한 번에 한 모델"이 지켜집니다.

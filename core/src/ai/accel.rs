@@ -77,10 +77,12 @@ pub fn select_device_with(pref: DevicePref) -> Result<Device> {
 /// 쓸 GPU 번호를 직접 정하는 환경 변수. 없으면 여유 VRAM 이 가장 많은 GPU 를 고릅니다 (Vulkan 은 0번).
 pub const GPU_ENV: &str = "ZOROGRAVITY_GPU";
 
+#[cfg_attr(not(any(test, feature = "cuda", feature = "rocm")), allow(dead_code))]
 fn parse_gpu(s: &str) -> Result<usize> {
     s.trim().parse().map_err(|_| anyhow!("{GPU_ENV}={s:?}: 0 이상의 GPU 번호여야 합니다"))
 }
 
+#[cfg_attr(not(any(test, feature = "cuda", feature = "rocm")), allow(dead_code))]
 fn gpu_override() -> Result<Option<usize>> {
     std::env::var(GPU_ENV).ok().filter(|v| !v.trim().is_empty()).map(|v| parse_gpu(&v)).transpose()
 }

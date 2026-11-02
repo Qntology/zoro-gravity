@@ -70,9 +70,10 @@ def font(path, size, index=0):
 
 
 class Page:
-    def __init__(self, rng, doc):
+    def __init__(self, rng, doc, values=None):
         self.rng = rng
         self.doc = doc
+        self.v = values or {}
         self.img = Image.new("RGB", (W, H), (255, 255, 255))
         self.d = ImageDraw.Draw(self.img)
         self.gt = []
@@ -82,6 +83,10 @@ class Page:
         self.shade = rng.choice([GRAY, GRAY, (245, 245, 245), (225, 232, 242), (255, 255, 255)])
         self.ink = rng.choice([BLUE, BLUE, (15, 15, 20), (30, 30, 60)])
         self.blank_rate = rng.choice([0.0, 0.0, 0.1])
+
+    def val(self, key, default):
+        """시나리오 값이 있으면 그 값을, 없으면 무작위 값을 씁니다."""
+        return self.v.get(key, default)
 
     def add(self, kind, box, text=""):
         self.gt.append({"kind": kind, "box": [int(v) for v in box], "text": text})
@@ -256,19 +261,25 @@ class Page:
         return bottom
 
     def footer(self, y, who, signer):
-        """날짜 · 서명 줄"""
+        """날짜 · 서명 줄. 시나리오의 `date`(YYYY-MM-DD) 와 `signed` 를 따릅니다."""
         rng = self.rng
-        self.center(y, "20 26 년    10 월    31 일", 24, GOTHIC)
-        self.hand(W / 2 - 60, y - 2, "26", 26, kind=None)
+        date = self.v.get("date")
+        if date:
+            yy, mm, dd = date.split("-")
+            self.center(y, f"{yy} 년 {mm} 월 {dd} 일", 24, GOTHIC, kind="value")
+        else:
+            self.center(y, "20 26 년    10 월    31 일", 24, GOTHIC)
+            self.hand(W / 2 - 60, y - 2, "26", 26, kind=None)
         y += 60
         x = W - self.margin - 480
         ex, _ = self.text(x, y + 8, f"{who} :", 24)
         self.hand(ex + 16, y + 2, signer, 32)
         self.text(x + 330, y + 8, "(서명 또는 인)", 19, fill=(90, 90, 90))
-        if rng.random() < 0.5:
-            self.sign(x + 190, y - 8)
-        else:
-            self.stamp(x + 410, y + 18, signer, 38)
+        if self.v.get("signed", True):
+            if rng.random() < 0.5:
+                self.sign(x + 190, y - 8)
+            else:
+                self.stamp(x + 410, y + 18, signer, 38)
         return y + 80
 
 
@@ -314,13 +325,13 @@ def rent_application(p):
     y += 90
     _, y = p.center(y, "청년월세 지원 신청서", r.randint(38, 44), kind="title")
     y += 40
-    name = person(r)
-    y = p.fields(y, "신청인", [("성명", name), ("생년월일", birth(r)), ("주소", address(r)), ("연락처", phone(r))])
+    name = p.val("name", person(r))
+    y = p.fields(y, "신청인", [("성명", name), ("생년월일", p.val("birth", birth(r))), ("주소", address(r)), ("연락처", phone(r))])
     y += 14
-    rent = r.choice([300000, 350000, 400000, 450000, 500000])
-    y = p.fields(y, "임대차", [("임대인", person(r)), ("소재지", address(r)), ("보증금", won(r.randint(5, 50) * 1000000) + " 원"), ("월세", won(rent) + " 원"), ("계약기간", "2026.03.01 ~ 2028.02.28")])
+    rent = int(p.val("rent", r.choice([300000, 350000, 400000, 450000, 500000])))
+    y = p.fields(y, "임대차", [("임대인", p.val("landlord", person(r))), ("소재지", address(r)), ("보증금", won(r.randint(5, 50) * 1000000) + " 원"), ("월세", won(rent) + " 원"), ("계약기간", "2026.03.01 ~ 2028.02.28")])
     y += 14
-    y = p.fields(y, "지급계좌", [("은행명", r.choice(BANK)), ("계좌번호", account(r)), ("예금주", name)])
+    y = p.fields(y, "지급계좌", [("은행명", r.choice(BANK)), ("계좌번호", p.val("account", account(r))), ("예금주", name)])
     y += 24
     y = p.guide(y, r.sample(LAW, 4))
     y += 30
@@ -334,18 +345,20 @@ def lease(p):
     _, y = p.center(y, "주택 임대차 계약서", r.randint(38, 44), kind="title")
     y += 34
     y = p.text(p.margin, y, "임대인과 임차인 쌍방은 아래 표시 주택에 관하여 다음과 같이 임대차 계약을 체결한다.", 19)[1] + 16
-    rent = r.choice([300000, 400000, 500000, 600000])
-    y = p.fields(y, "목적물", [("소재지", address(r)), ("임대부분", f"{r.randint(1, 15)}층 전부"), ("보증금", "금 " + won(r.randint(5, 50) * 1000000) + " 원정"), ("차임(월세)", "금 " + won(rent) + " 원정"), ("임대차기간", "2026.03.01 ~ 2028.02.28")], hand=False)
+    rent = int(p.val("rent", r.choice([300000, 400000, 500000, 600000])))
+    deposit = int(p.val("deposit", r.randint(5, 50) * 1000000))
+    y = p.fields(y, "목적물", [("소재지", address(r)), ("임대부분", f"{r.randint(1, 15)}층 전부"), ("보증금", "금 " + won(deposit) + " 원정"), ("차임(월세)", "금 " + won(rent) + " 원정"), ("임대차기간", "2026.03.01 ~ 2028.02.28")], hand=False)
     y += 22
     lines = [f"제{i + 3}조 {s}" for i, s in enumerate(r.sample(CLAUSE, 5))]
     y = p.guide(y, lines, 18, box=False)
     y += 18
     p.center(y, "2026 년 02 월 15 일", 23, GOTHIC, kind="value")
     y += 50
-    a, b = person(r), person(r)
-    for who, name in (("임대인", a), ("임차인", b)):
+    a, b = p.val("landlord", person(r)), p.val("tenant", person(r))
+    births = (p.val("landlord_birth", birth(r)), p.val("tenant_birth", birth(r)))
+    for (who, name), born in zip((("임대인", a), ("임차인", b)), births):
         y0 = y
-        y = p.fields(y, who, [("성명", name), ("주민번호", birth(r) + "-*******"), ("주소", address(r))], hand=True)
+        y = p.fields(y, who, [("성명", name), ("주민번호", born + "-*******"), ("주소", address(r))], hand=True)
         p.stamp(W - p.margin - 70, y0 + 40, name, 38)
         y += 12
 
@@ -357,13 +370,13 @@ def transfer(p):
     y += 50
     _, y = p.center(y, "거래내역 확인서 (이체내역서)", r.randint(34, 40), kind="title")
     y += 34
-    name = person(r)
-    y = p.fields(y, "계좌정보", [("예금주", name), ("계좌번호", account(r)), ("조회기간", "2026.07.01 ~ 2026.09.30")], hand=False)
+    name = p.val("name", person(r))
+    y = p.fields(y, "계좌정보", [("예금주", name), ("계좌번호", p.val("account", account(r))), ("조회기간", "2026.08.01 ~ 2026.10.31")], hand=False)
     y += 24
-    rent = r.choice([300000, 400000, 500000])
+    rent = int(p.val("rent", r.choice([300000, 400000, 500000])))
     balance = r.randint(1, 9) * 1000000
     rows = []
-    for month in range(7, 10):
+    for month in range(8, 11):
         for k in range(r.randint(2, 4)):
             out = rent if k == 0 else r.randint(1, 40) * 10000
             balance -= out
@@ -380,7 +393,7 @@ def consent(p):
     y = 90
     _, y = p.center(y, "금융정보 등 제공 동의서", r.randint(36, 42), kind="title")
     y += 40
-    name = person(r)
+    name = p.val("name", person(r))
     y = p.guide(y, r.sample(LAW, 3) + [
         "금융기관 등의 장은 금융실명거래 및 비밀보장에 관한 법률 제4조에 따라 금융정보를 제공할 수 있습니다.",
         "제공 대상 정보는 예금 · 적금 · 주식 · 보험 · 대출 잔액 및 이자 소득 등입니다.",
@@ -422,7 +435,8 @@ def receipts(p):
     _, y = p.center(y, "영수증 첨부지", 34, kind="title")
     y += 34
     x = p.margin
-    for i in range(r.randint(3, 4)):
+    given = p.v.get("receipts")
+    for i in range(len(given) if given else r.randint(3, 4)):
         w, h = 470, r.randint(330, 420)
         rx = x + (i % 2) * 540 + r.randint(-8, 8)
         ry = y + (i // 2) * (h + 40) + r.randint(-6, 6)
@@ -430,7 +444,10 @@ def receipts(p):
         p.text(rx + 130, ry + 14, "카드 매출전표", 24, BOLD)
         shop = r.choice(SHOP)
         amount = r.randint(3, 60) * 10000 - 2000
+        row = given[i] if given else None
         lines = [("가맹점", shop), ("사업자번호", f"{r.randint(100, 999)}-{r.randint(10, 99)}-{r.randint(10000, 99999)}"), ("승인번호", str(r.randint(10000000, 99999999))), ("거래일시", f"2026-10-{r.randint(1, 28):02d} {r.randint(9, 20):02d}:{r.randint(10, 59)}"), ("품목", r.choice(ITEM)), ("합계", won(amount) + " 원")]
+        if row:
+            lines = [("가맹점", row["vendor"]), ("사업자번호", lines[1][1]), ("승인번호", row["approval"]), ("거래일시", f'{row["date"]} {row["time"]}'), ("품목", row["item"]), ("합계", won(int(row["amount"])) + "원")]
         ly = ry + 64
         top = ly
         for k, v in lines:
@@ -445,7 +462,7 @@ def settlement(p):
     y = 90
     _, y = p.center(y, "보조사업 정산보고서 총괄표", r.randint(34, 40), kind="title")
     y += 36
-    y = p.fields(y, "사업", [("사업명", "마을 환경 개선 사업"), ("단체명", "마을공동체협의회"), ("대표자", person(r)), ("사업기간", "2026.05.01 ~ 2026.10.31")])
+    y = p.fields(y, "사업", [("사업명", p.val("program", "마을 환경 개선 사업")), ("단체명", p.val("org", "마을공동체협의회")), ("대표자", p.val("name", person(r))), ("정산금액", won(int(p.val("claimed", r.randint(5, 80) * 10000))) + " 원")])
     y += 24
     rows = []
     for item in r.sample(ITEM, r.randint(5, 7)):
@@ -456,7 +473,7 @@ def settlement(p):
     y += 28
     y = p.guide(y, r.sample(LAW, 2))
     y += 30
-    p.footer(y, "대표자", person(r))
+    p.footer(y, "대표자", p.val("name", person(r)))
 
 
 def bankbook(p):
@@ -467,8 +484,8 @@ def bankbook(p):
     p.text(x + 30, y + 26, r.choice(BANK), 34, BOLD)
     p.text(x + 30, y + 80, "보통예금 통장", 26)
     yy = y + 160
-    name = person(r)
-    for k, v in [("예금주", name), ("계좌번호", account(r)), ("개설일", f"20{r.randint(10, 24)}.{r.randint(1, 12):02d}.{r.randint(1, 28):02d}"), ("지점", r.choice(["마포", "관악", "유성", "팔달"]) + " 지점")]:
+    name = p.val("name", person(r))
+    for k, v in [("예금주", name), ("계좌번호", p.val("account", account(r))), ("개설일", f"20{r.randint(10, 24)}.{r.randint(1, 12):02d}.{r.randint(1, 28):02d}"), ("지점", r.choice(["마포", "관악", "유성", "팔달"]) + " 지점")]:
         p.text(x + 40, yy, k, 24)
         p.typed(x + 220, yy, v, 28)
         yy += 66
@@ -483,13 +500,13 @@ def biz_report(p):
     y += 90
     _, y = p.center(y, "영업 신고서", r.randint(38, 44), kind="title")
     y += 36
-    y = p.fields(y, "신고인", [("성명", person(r)), ("생년월일", birth(r)), ("주소", address(r)), ("전화번호", phone(r))])
+    y = p.fields(y, "신고인", [("성명", p.val("name", person(r))), ("생년월일", p.val("birth", birth(r))), ("주소", address(r)), ("전화번호", phone(r))])
     y += 14
-    y = p.fields(y, "영업소", [("상호", r.choice(SHOP)), ("소재지", address(r)), ("영업의 종류", "일반음식점"), ("영업장 면적", f"{r.randint(30, 180)}.{r.randint(0, 9)} ㎡")])
+    y = p.fields(y, "영업소", [("상호", p.val("business", r.choice(SHOP))), ("소재지", p.val("address", address(r))), ("영업의 종류", p.val("kind", "일반음식점")), ("영업장 면적", f"{r.randint(30, 180)}.{r.randint(0, 9)} ㎡")])
     y += 24
     y = p.guide(y, ["식품위생법 제37조제4항 및 같은 법 시행규칙 제42조제1항에 따라 위와 같이 신고합니다."] + r.sample(LAW, 2))
     y += 24
-    p.footer(y, "신고인", person(r))
+    p.footer(y, "신고인", p.val("name", person(r)))
     y += 170
     y = p.guide(y, ["첨부서류: 1. 교육이수증 1부  2. 재산이나 시설 관련 서류 1부  3. 소방 · 안전시설 완비증명서 1부"], 18)
 
@@ -507,7 +524,9 @@ def certificate(p, title, rows, foot):
     y += 40
     y = p.guide(y, [foot], 21, box=False)
     y += 60
-    p.center(y, f"2026 년 {r.randint(1, 12):02d} 월 {r.randint(1, 28):02d} 일", 25, GOTHIC, kind="value")
+    issued = p.v.get("issued")
+    when = "{} 년 {} 월 {} 일".format(*issued.split("-")) if issued else f"2026 년 {r.randint(1, 12):02d} 월 {r.randint(1, 28):02d} 일"
+    p.center(y, when, 25, GOTHIC, kind="value")
     y += 80
     p.center(y, "한국식품위생협회장" if "위생" in title else "소방서장", 32)
     p.stamp(W / 2 + 200, y + 18, "직인", 44)
@@ -515,12 +534,12 @@ def certificate(p, title, rows, foot):
 
 def hygiene_cert(p):
     r = p.rng
-    certificate(p, "위생교육 이수증", [("성명", person(r)), ("생년월일", birth(r)), ("영업의 종류", "일반음식점"), ("교육 시간", "6 시간")], "위 사람은 식품위생법 제41조에 따른 위생교육을 이수하였음을 증명합니다.")
+    certificate(p, "위생교육 이수증", [("성명", p.val("name", person(r))), ("생년월일", p.val("birth", birth(r))), ("영업의 종류", "일반음식점"), ("교육 시간", "6 시간")], "위 사람은 식품위생법 제41조에 따른 위생교육을 이수하였음을 증명합니다.")
 
 
 def fire_cert(p):
     r = p.rng
-    certificate(p, "안전시설 등 완비증명서", [("상호", r.choice(SHOP)), ("대표자", person(r)), ("소재지", address(r)), ("업종", "일반음식점")], "위 영업장은 다중이용업소법 제9조에 따른 안전시설 등을 완비하였음을 증명합니다.")
+    certificate(p, "안전시설 등 완비증명서", [("상호", p.val("business", r.choice(SHOP))), ("대표자", p.val("name", person(r))), ("소재지", p.val("address", address(r))), ("업종", "일반음식점")], "위 영업장은 다중이용업소법 제9조에 따른 안전시설 등을 완비하였음을 증명합니다.")
 
 
 def building_ledger(p):
@@ -528,12 +547,16 @@ def building_ledger(p):
     y = 80
     _, y = p.center(y, "일반건축물대장 (갑)", r.randint(34, 40), kind="title")
     y += 34
-    y = p.fields(y, "건축물", [("대지위치", address(r)), ("지번", str(r.randint(100, 999))), ("연면적", f"{r.randint(100, 900)} ㎡"), ("주용도", "제2종 근린생활시설"), ("구조", "철근콘크리트"), ("높이", f"{r.randint(9, 30)} m")], hand=False, cols=2)
+    y = p.fields(y, "건축물", [("대지위치", p.val("address", address(r))), ("지번", str(r.randint(100, 999))), ("연면적", f"{r.randint(100, 900)} ㎡"), ("주용도", p.val("use", "제2종 근린생활시설")), ("구조", "철근콘크리트"), ("높이", f"{r.randint(9, 30)} m")], hand=False, cols=1 if "address" in p.v else 2)
     y += 24
     rows = [[f"{i}층", r.choice(["철근콘크리트", "벽돌조"]), r.choice(["소매점", "일반음식점", "사무소", "주택"]), f"{r.randint(60, 240)}"] for i in range(1, r.randint(4, 7))]
     y = p.table(y, ["구분", "구조", "용도", "면적(㎡)"], rows)
     y += 24
     rows = [[f"20{r.randint(10, 25)}.{r.randint(1, 12):02d}.{r.randint(1, 28):02d}", r.choice(["사용승인", "소유권 이전", "증축", "위반건축물 표기"]), ""] for _ in range(r.randint(2, 4))]
+    if "use" in p.v:
+        rows = [["2019.05.14", "사용승인", ""]]
+        if p.v.get("violation"):
+            rows.append(["2025.08.20", "위반건축물 표기", p.v["violation"]])
     y = p.table(y, ["변동일", "변동내용", "비고"], rows, [1, 2, 1])
     y += 26
     p.guide(y, ["이 등본은 건축물대장의 원본 내용과 틀림없음을 증명합니다."])
@@ -545,10 +568,10 @@ def poa(p):
     y = 100
     _, y = p.center(y, "인감증명서 발급 위임장", r.randint(36, 42), kind="title")
     y += 44
-    a, b = person(r), person(r)
-    y = p.fields(y, "위임자", [("성명", a), ("주민번호", birth(r) + "-*******"), ("주소", address(r))])
+    a, b = p.val("principal", person(r)), p.val("agent", person(r))
+    y = p.fields(y, "위임자", [("성명", a), ("주민번호", p.val("principal_birth", birth(r)) + "-*******"), ("주소", address(r))])
     y += 16
-    y = p.fields(y, "대리인", [("성명", b), ("주민번호", birth(r) + "-*******"), ("주소", address(r)), ("관계", r.choice(["자녀", "배우자", "형제"]))])
+    y = p.fields(y, "대리인", [("성명", b), ("주민번호", p.val("agent_birth", birth(r)) + "-*******"), ("주소", address(r)), ("관계", p.val("relation", r.choice(["자녀", "배우자", "형제"])))])
     y += 34
     y = p.guide(y, ["위 사람에게 인감증명서 발급 신청 및 수령에 관한 권한을 위임합니다.", "위임장은 작성일로부터 6개월 이내에 사용하여야 합니다."] + r.sample(LAW, 1), 20)
     y += 40
@@ -565,8 +588,8 @@ def id_copy(p):
     p.d.rectangle((x + w - 190, y + 100, x + w - 40, y + 300), fill=(200, 205, 212), outline=(120, 120, 120))
     p.d.ellipse((x + w - 150, y + 130, x + w - 80, y + 205), fill=(120, 110, 105))
     p.d.pieslice((x + w - 180, y + 200, x + w - 50, y + 340), 180, 360, fill=(70, 75, 90))
-    p.typed(x + 40, y + 110, person(r), 34)
-    p.typed(x + 40, y + 170, birth(r) + "-*******", 26)
+    p.typed(x + 40, y + 110, p.val("name", person(r)), 34)
+    p.typed(x + 40, y + 170, p.val("birth", birth(r)) + "-*******", 26)
     p.typed(x + 40, y + 230, address(r)[:22], 21)
     p.typed(x + 40, y + 300, "2019. 5. 14.  마포구청장", 22)
     p.stamp(x + 390, y + 320, "구청", 28)
@@ -577,11 +600,13 @@ def petition(p):
     y = 120
     _, y = p.center(y, "진 정 서", r.randint(40, 46), kind="title")
     y += 60
-    name = person(r)
-    y = p.hand(p.margin + 20, y, f"진정인 {name}  {phone(r)}", 30)[1] + 20
+    name = p.val("name", person(r))
+    y = p.hand(p.margin + 20, y, f"진정인 {name}  {p.val('contact', phone(r))}", 30)[1] + 20
     y = p.hand(p.margin + 20, y, address(r), 30)[1] + 40
-    lines = r.sample(COMPLAINT, 5)
-    for s in lines + r.sample(COMPLAINT, 2):
+    lines = r.sample(COMPLAINT, 5) + r.sample(COMPLAINT, 2)
+    if "text" in p.v:
+        lines = [t.strip() + "." for t in p.v["text"].split(".") if t.strip()]
+    for s in lines:
         words, line = s.split(" "), ""
         for wd in words:
             if len(line) + len(wd) > 30:

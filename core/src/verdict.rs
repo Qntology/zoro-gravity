@@ -31,6 +31,8 @@ pub enum Verdict {
     G3EligibleNormal,
     G3EligibleHomonymClear,
     G3ViolationHighRisk,
+    G3HoldSimpleReceiptMissing,
+    G3ViolationRelatedVendorSplit,
     G3InterceptRubberStamp,
     // Gate 4: 문서 생성
     G4ForceSupplementForm,
@@ -38,7 +40,7 @@ pub enum Verdict {
     G4InterceptDocCorruption,
 }
 
-pub const ALL: [Verdict; 20] = [
+pub const ALL: [Verdict; 22] = [
     Verdict::Cat01Welfare,
     Verdict::Cat02Subsidy,
     Verdict::Cat03Permit,
@@ -55,6 +57,8 @@ pub const ALL: [Verdict; 20] = [
     Verdict::G3EligibleNormal,
     Verdict::G3EligibleHomonymClear,
     Verdict::G3ViolationHighRisk,
+    Verdict::G3HoldSimpleReceiptMissing,
+    Verdict::G3ViolationRelatedVendorSplit,
     Verdict::G3InterceptRubberStamp,
     Verdict::G4ForceSupplementForm,
     Verdict::G4BlockInternalLeak,
@@ -91,6 +95,8 @@ impl Verdict {
             Verdict::G3EligibleNormal => "G3_ELIGIBLE_NORMAL",
             Verdict::G3EligibleHomonymClear => "G3_ELIGIBLE_HOMONYM_CLEAR",
             Verdict::G3ViolationHighRisk => "G3_VIOLATION_HIGH_RISK",
+            Verdict::G3HoldSimpleReceiptMissing => "G3_HOLD_SIMPLE_RECEIPT_MISSING",
+            Verdict::G3ViolationRelatedVendorSplit => "G3_VIOLATION_RELATED_VENDOR_SPLIT",
             Verdict::G3InterceptRubberStamp => "G3_INTERCEPT_RUBBER_STAMP",
             Verdict::G4ForceSupplementForm => "G4_FORCE_SUPPLEMENT_FORM",
             Verdict::G4BlockInternalLeak => "G4_BLOCK_INTERNAL_LEAK",
@@ -105,7 +111,7 @@ impl Verdict {
     pub fn class(self) -> OutcomeClass {
         match self {
             Verdict::G3EligibleNormal | Verdict::G3EligibleHomonymClear => OutcomeClass::Favorable,
-            Verdict::G1ExpiredMandatoryReject | Verdict::G3ViolationHighRisk => OutcomeClass::Adverse,
+            Verdict::G1ExpiredMandatoryReject | Verdict::G3ViolationHighRisk | Verdict::G3ViolationRelatedVendorSplit => OutcomeClass::Adverse,
             _ => OutcomeClass::Procedural,
         }
     }

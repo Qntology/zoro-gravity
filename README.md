@@ -15,9 +15,9 @@
 
 | 영역 | 상태 |
 | --- | --- |
-| 5-Gate 규칙 엔진 (Gate 0~5) · 엔드투엔드 (명세 사례) | 구현 · 단위 테스트 267개 + 엔드투엔드 23개 통과 (모델 파일이 필요한 점검은 `--ignored`, `real_models` 14개) |
+| 5-Gate 규칙 엔진 (Gate 0~5) · 엔드투엔드 (명세 사례) | 구현 · 단위 테스트 335개 + 양식 흐름 15개 + 엔드투엔드 24개 + N:N 5개 통과 (모델 파일이 필요한 점검은 `--ignored`, `real_models` 14개) |
 | 자동화 정책 · 감사 로그 · 비식별 해시 | 구현 |
-| 관계망 멀티홉 · 동명이인 판별 (사건 범위) | 구현 |
+| 관계망 멀티홉 · 동명이인 판별 (사건 범위) | 구현. 정부 API 없이 **합성 관계망 · 대장**을 DB 에 미리 넣어 진행합니다 ([docs/synthetic-data.md](docs/synthetic-data.md)) |
 | 판단 모델 인터페이스 (`DecisionModel`) | 구현. 게이트가 식별 정보 없는 사실과 선택지로 질문을 만듭니다 |
 | `jev_head` (질의·키 투영, 0-Generation 포인터) | 구현 (`JevHead`, `PointerModel`). 형식은 조합 1,680개를 재서 골랐습니다 (선택지는 닫는따옴표, 스케일 1/32). [docs/jev-head.md](docs/jev-head.md). **합성 · 명세 사례로만 검증** |
 | **zoro 백본** (판단 · 글쓰기) | **구현** (`ai::zoro`, 직접 작성). 합성 모델은 스칼라 기준 구현과 일치. KV 캐시 · 순환 상태 · 출력 투영으로 글을 씁니다. 자기 추측 디코딩으로 토큰당 30 ms ([docs/zoro-backbone.md](docs/zoro-backbone.md)). 비전 입력과 블록 디퓨전 생성은 없음 |
@@ -25,13 +25,13 @@
 | **가중치 상주 관리** (모델 하나 · 단계별 묶음 · 스트리밍 · VRAM 반환) | **구현** (`ai::residency`). 실제 GPU 에서 올리고 내릴 때 VRAM 이 돌아오는 것을 측정 |
 | 문서 인식 (gocr) | **구현** (`ai::gocr`, 직접 작성). 비전 인코더(같은 격자 묶음) · 언어 디코더 · KV 캐시 · 블록 디퓨전 초안 + 자기회귀 검증 · 신뢰도 조기 종료 |
 | 문서 크롭 (SigLIP2) | **구현** (`ai::siglip2`, 직접 작성). 패치 경쟁(NMS)과 크롭 NMS 포함. 합성 서식으로 평가했고 **실제 스캔으로는 학습 · 평가 전**. [docs/document-crop.md](docs/document-crop.md) |
-| 문서 묶음 읽기 | **구현** (`ai::document`). 픽셀 계산은 병렬, 모델은 단계마다 한 번만 올립니다. 읽은 글을 항목별 사실로 바꾸는 단계는 미구현 |
+| 문서 묶음 읽기 · 항목 추출 | **구현** (`ai::document`, `extract`). 픽셀 계산은 병렬, 모델은 단계마다 한 번만 올립니다. 서류 종류 · 항목 · 서명을 뽑고, 글자 신뢰도가 낮은 값은 사람에게 넘깁니다. 합성 서류로만 평가했습니다 |
 | 모델 양자화 (GGUF Q4 · Q8, 비전 BF16) | 구현 · gocr · zoro 모두 q8 선택. [docs/model-quantization.md](docs/model-quantization.md) |
 | 장치 선택 · 커널 자가 검증 (ROCm · Vulkan · CPU) | 구현 · 실측은 아래 |
 | HWP 문서 생성 (rhwp) | 구현 (`tools/hwp-builder`, 내부결재용 · 교부용, 금지어 · 확정 수치 검사). 심사 흐름과 앱 편집기에는 아직 연결 안 됨 |
 | 모델 다운로드 · 삭제 (AppData, 진행률 표시) | 구현 (`tools/model-settings`, 앱 설정 화면) |
 | KV 캐시 FP8 (ROCm · Vulkan · CUDA) | 구현 (`ai::kv_turbo`). CPU 단위 테스트만 통과했고 **GPU 에서는 아직 돌려 보지 않았습니다** |
-| Tauri 앱 (`app`) | 두 창 틀과 모델 설정만 구현. 심사 화면은 미구현 |
+| Tauri 앱 (`app`) | **구현**. 민원인 키오스크(서류 넣기 → 내용 확인 → 결과)와 공무원 콘솔(사유 → 남은 확인 → 처리). 실제 모델로 끝까지 돕니다. 스캐너는 폴더로 대신합니다. 검증 결과는 [docs/stabilization-report.md](docs/stabilization-report.md) |
 | 영속 저장 (SQLite) | 미구현 (메모리) |
 | 사건 간 관계망 누적 | 미구현 (법무 검토 필요) |
 
@@ -45,7 +45,7 @@
 | Linux | `run/linux/cuda.sh` | `run/linux/rocm.sh` | `run/linux/vulkan.sh` |
 | macOS | 지원 안 됨 | 지원 안 됨 | `run/macos/vulkan.command` |
 
-앱은 `run\windows\app.bat` · `run/linux/app.sh` · `run/macos/app.command` 로 실행합니다.
+앱은 `run\windows\app.bat` · `run/linux/app.sh` · `run/macos/app.command` 로 실행합니다. AMD GPU 는 `run\windows\app-rocm.bat` 를 씁니다. 스캐너 입력은 `ZOROGRAVITY_SCANNER_DIR` 폴더(기본 `%LOCALAPPDATA%\zorogravity\scanner`)의 이미지로 대신합니다. `ZOROGRAVITY_ENGINE=rules` 면 모델 없이 규칙만으로 돕니다. `ZOROGRAVITY_TRACE=<파일>` 을 주면 모델이 언제 무엇을 했는지 남깁니다 (`core/src/ai/trace.rs`).
 
 ```bat
 :: 기본은 판단 경로 전체를 도는 decide_probe 입니다. 예제 이름과 인자를 주면 그 예제를 돌립니다.
@@ -53,7 +53,7 @@ run\windows\vulkan.bat
 run\windows\rocm.bat read_page 이미지.jpg
 ```
 
-- 결과물은 `target-cuda` · `target-rocm` · `target` 의 `release\examples` 에 생깁니다. 아직 앱 본체가 없어서 실행 대상은 `core/examples` 의 예제입니다.
+- 결과물은 `target-cuda` · `target-rocm` · `target` 의 `release\examples` 에 생깁니다.
 - 공통으로 이 저장소 옆에 `candle-rocm-vulkan` 이 있어야 하고, 모델은 앱 데이터 폴더에 받아 두어야 합니다 (아래 "모델 폴더와 다운로드").
 - **CUDA** 는 CUDA Toolkit(`nvcc`)이, **ROCm** 은 HIP SDK 가, **Vulkan** 은 GPU 드라이버가 있어야 합니다. 맥의 Vulkan 은 `brew install vulkan-loader molten-vk` 로 설치합니다.
 - 맥의 `cuda.command` · `rocm.command` 는 안내만 하고 끝납니다. macOS 용 ROCm 은 없고 CUDA 는 10.2 를 끝으로 지원이 끊겼습니다.
@@ -175,6 +175,11 @@ zorogravity/
 │   │   ├── verdict.rs      처분 코드 · 판정
 │   │   ├── case.rs         민원 입력 모델 (원문은 드롭 시 0 으로 덮음)
 │   │   ├── graph.rs        관계망 질의
+│   │   ├── lattice.rs      합성 관계망 · 공공 대장 조회
+│   │   ├── extract.rs      읽은 글자에서 서류 종류 · 항목 · 서명 뽑기, 대장으로 오독 보정
+│   │   ├── evidence.rs     서류 · 대장 · 입력을 맞춰 사실 채우기
+│   │   ├── forms.rs        키오스크 입력 검사
+│   │   ├── intake.rs       접수 · 창구 확인 · 공무원 처리
 │   │   ├── store.rs        4대 테이블 (메모리 구현)
 │   │   ├── audit.rs        감사 로그 (추가만 가능)
 │   │   └── privacy.rs      솔트 해시 · 누출 검사
@@ -182,7 +187,10 @@ zorogravity/
 │   │                       qmatmul_check · softmax_check · jev_head_probe · gocr_probe · siglip2_probe
 │   │                       read_page · read_eval · crop_eval · crop_view · layout_bench · siglip2_dump
 │   │                       automation_eval · jev_format_search · write_eval
-│   └── tests/              governance.rs (명세 사례 엔드투엔드) · real_models.rs (실제 모델 점검, --ignored)
+│   │                       matrix_eval(N:N 층별 평가) · case_read · case_extract(읽기 · 추출 평가)
+│   ├── fixtures/           synthetic_db.json(합성 관계망 · 대장) · scenarios.json(N:N 시나리오)
+│   └── tests/              governance.rs (명세 사례 엔드투엔드) · form_route.rs (양식 흐름) · matrix.rs (N:N)
+│                           real_models.rs (실제 모델 점검, --ignored)
 ├── tools/gguf-convert/     zorogravity-gguf: safetensors → GGUF (Q4_K · Q8_0, 비전 BF16), 정밀도 점검, jev_head 변환
 ├── tools/hwp-builder/      zorogravity-hwp: rhwp 로 내부결재용 · 민원인 교부용 HWP 생성
 ├── tools/model-settings/   zorogravity-models: 모델 폴더(AppData) · 다운로드 · 삭제
@@ -190,6 +198,9 @@ zorogravity/
 ├── run/                    백엔드별 실행 스크립트 (windows · linux · macos)
 ├── scripts/                ROCm · CUDA 빌드 환경, 실행 스크립트 공용 부분, 평가 · 학습 스크립트
 └── docs/
+    ├── stabilization-report.md 안정화 기준 · 층별 검증 결과 · 절차 비교
+    ├── synthetic-data.md      합성 관계망 · 대장의 정의
+    ├── kiosk-form-plan.md     민원 화면 기획과 구현 기록
     ├── automation-mode.md     자동화 모드 설계 · 법령 검토 항목 · 실제 모델 결과
     ├── weight-residency.md    가중치 상주 관리 · 단계 전환 · 실측
     ├── zoro-backbone.md       zoro 백본 구조 · 검증 · 한계
@@ -201,10 +212,11 @@ zorogravity/
 
 ## 명세와 다른 점
 
-- 명세의 Python `ai-engine` 과 Tauri `src-tauri` 대신, AI 와 규칙을 Rust `core` 에 모았습니다. Tauri 는 나중에 `core` 를 감싸는 얇은 층으로 붙입니다.
+- 명세의 Python `ai-engine` 과 Tauri `src-tauri` 대신, AI 와 규칙을 Rust `core` 에 모았습니다. Tauri 앱(`app/src-tauri`)은 `core` 를 감싸는 얇은 층입니다.
 - 명세의 거짓 소명 행동 페널티(+8.2%)는 구현하지 않았습니다. 이유는 [docs/automation-mode.md](docs/automation-mode.md) 5절에 있습니다.
-- 민원 분류는 접수 양식 코드가 규칙이고, 모델은 의견만 냅니다.
-- 사건 간 관계망 누적과 HWP 바이너리 생성은 아직 없습니다.
+- 민원 분류는 접수 양식 코드가 정하고, 모델에는 묻지 않습니다.
+- 사건 간 관계망 누적은 아직 없습니다. HWP 생성은 `tools/hwp-builder` 에 있지만 심사 흐름에는 연결하지 않았습니다.
+- 명세의 연계 데이터는 합성 DB 로 대신합니다 ([docs/synthetic-data.md](docs/synthetic-data.md)).
 
 ## 알려진 문제
 

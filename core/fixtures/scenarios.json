@@ -1,0 +1,1570 @@
+{
+ "note": "N:N 검증용 합성 시나리오. 민원 종류 × 서류 상태 × 운영 모드로 돌립니다. 정의는 docs/synthetic-data.md 에 있습니다. expect 값: auto(자동화 모드에서 자동 확정), officer(공무원 확인), retry(민원인 재입력)",
+ "modes": [
+  "none",
+  "id_only",
+  "partial",
+  "full"
+ ],
+ "scenarios": [
+  {
+   "id": "W1-clean",
+   "category": "welfare",
+   "title": "깨끗한 청년월세",
+   "applicant": {
+    "name": "이서연",
+    "birth": "000315"
+   },
+   "form": {
+    "applied_rent": "400000",
+    "handwritten_account": "110-123-100315"
+   },
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "최민수",
+      "landlord_birth": "701122",
+      "contract_rent": "400000",
+      "deposit": "10000000",
+      "tenant_name": "이서연"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "400000",
+      "printed_account": "110-123-100315",
+      "holder": "이서연"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "400000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "auto",
+     "partial": "auto",
+     "full": "auto"
+    }
+   }
+  },
+  {
+   "id": "W2-mother-gap",
+   "category": "welfare",
+   "title": "모친이 임대인, 차액 20만 원, 거짓 소명",
+   "applicant": {
+    "name": "김철수",
+    "birth": "990101"
+   },
+   "form": {
+    "applied_rent": "500000",
+    "handwritten_account": "110-123-991023"
+   },
+   "excuses": [
+    "typo",
+    "cash"
+   ],
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "박영희",
+      "landlord_birth": "640312",
+      "contract_rent": "500000",
+      "deposit": "20000000",
+      "tenant_name": "김철수"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "300000",
+      "printed_account": "110-123-991023",
+      "holder": "김철수"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "500000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "officer": {
+    "trap": "rubber_stamp"
+   },
+   "expect": {
+    "verdict": "G3_VIOLATION_HIGH_RISK",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "W3-homonym",
+   "category": "welfare",
+   "title": "임대인이 모친과 동명이인",
+   "applicant": {
+    "name": "강도윤",
+    "birth": "970505"
+   },
+   "form": {
+    "applied_rent": "450000",
+    "handwritten_account": "110-77-970505"
+   },
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "박영희",
+      "landlord_birth": "580808",
+      "contract_rent": "450000",
+      "deposit": "15000000",
+      "tenant_name": "강도윤"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "450000",
+      "printed_account": "110-77-970505",
+      "holder": "강도윤"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "450000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_HOMONYM_CLEAR",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "auto",
+     "partial": "auto",
+     "full": "auto"
+    }
+   }
+  },
+  {
+   "id": "W4-shared-account",
+   "category": "welfare",
+   "title": "임대인과 같은 계좌를 쓰는 위장 임차",
+   "applicant": {
+    "name": "임현우",
+    "birth": "960303"
+   },
+   "form": {
+    "applied_rent": "350000",
+    "handwritten_account": "301-44-960303"
+   },
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "오유진",
+      "landlord_birth": "720815",
+      "contract_rent": "350000",
+      "deposit": "10000000",
+      "tenant_name": "임현우"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "350000",
+      "printed_account": "301-44-960303",
+      "holder": "임현우"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "350000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "officer": {
+    "trap": "rubber_stamp"
+   },
+   "expect": {
+    "verdict": "G3_VIOLATION_HIGH_RISK",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "W5-two-hop",
+   "category": "welfare",
+   "title": "동일 세대를 거쳐 2홉으로 이어지는 임대인",
+   "applicant": {
+    "name": "서민수",
+    "birth": "950202"
+   },
+   "form": {
+    "applied_rent": "500000",
+    "handwritten_account": "004-21-950202"
+   },
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "배정호",
+      "landlord_birth": "610117",
+      "contract_rent": "500000",
+      "deposit": "30000000",
+      "tenant_name": "서민수"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "500000",
+      "printed_account": "004-21-950202",
+      "holder": "서민수"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "500000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "officer": {
+    "trap": "rubber_stamp"
+   },
+   "expect": {
+    "verdict": "G3_VIOLATION_HIGH_RISK",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "W6-cousin",
+   "category": "welfare",
+   "title": "4촌은 배제 대상이 아님",
+   "applicant": {
+    "name": "신하늘",
+    "birth": "980822"
+   },
+   "form": {
+    "applied_rent": "300000",
+    "handwritten_account": "110-48-980822"
+   },
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "신기철",
+      "landlord_birth": "680430",
+      "contract_rent": "300000",
+      "deposit": "10000000",
+      "tenant_name": "신하늘"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "300000",
+      "printed_account": "110-48-980822",
+      "holder": "신하늘"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "300000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "auto",
+     "partial": "auto",
+     "full": "auto"
+    }
+   }
+  },
+  {
+   "id": "W7-no-registry",
+   "category": "welfare",
+   "title": "대장에 계약이 없고 임대인도 관계망에 없음",
+   "applicant": {
+    "name": "윤지아",
+    "birth": "010909"
+   },
+   "form": {
+    "applied_rent": "420000",
+    "handwritten_account": "110-90-010909"
+   },
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "한미지",
+      "landlord_birth": "690101",
+      "contract_rent": "420000",
+      "deposit": "12000000",
+      "tenant_name": "윤지아"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "420000",
+      "printed_account": "110-90-010909",
+      "holder": "윤지아"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "420000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "officer": {
+    "counter": {
+     "contract_rent": 420000,
+     "latest_transfer": 420000,
+     "printed_account": "110-90-010909",
+     "landlord": [
+      "한미지",
+      "690101"
+     ]
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "W8-same-name-birth",
+   "category": "welfare",
+   "title": "성명과 생년월일이 같은 사람이 둘",
+   "applicant": {
+    "name": "김민재",
+    "birth": "850101"
+   },
+   "form": {
+    "applied_rent": "380000",
+    "handwritten_account": "110-11-850101"
+   },
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "최민수",
+      "landlord_birth": "701122",
+      "contract_rent": "380000",
+      "deposit": "9000000",
+      "tenant_name": "김민재"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "380000",
+      "printed_account": "110-11-850101",
+      "holder": "김민재"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "380000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "officer": {
+    "counter": {
+     "contract_rent": 380000,
+     "latest_transfer": 380000,
+     "printed_account": "110-11-850101",
+     "landlord": [
+      "최민수",
+      "701122"
+     ]
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "W9-account-typo",
+   "category": "welfare",
+   "title": "계좌 끝자리 오기입은 통장 값으로 고정",
+   "applicant": {
+    "name": "이서연",
+    "birth": "000315"
+   },
+   "form": {
+    "applied_rent": "400000",
+    "handwritten_account": "110-123-100318"
+   },
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "최민수",
+      "landlord_birth": "701122",
+      "contract_rent": "400000",
+      "deposit": "10000000",
+      "tenant_name": "이서연"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "400000",
+      "printed_account": "110-123-100315",
+      "holder": "이서연"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "400000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "auto",
+     "partial": "auto",
+     "full": "auto"
+    }
+   }
+  },
+  {
+   "id": "W10-repair-excuse",
+   "category": "welfare",
+   "title": "수리비 공제 소명은 증빙을 공무원이 봄",
+   "applicant": {
+    "name": "노지훈",
+    "birth": "990707"
+   },
+   "form": {
+    "applied_rent": "500000",
+    "handwritten_account": "004-90-990707"
+   },
+   "excuses": [
+    "repair_receipt"
+   ],
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "최민수",
+      "landlord_birth": "701122",
+      "contract_rent": "500000",
+      "deposit": "10000000",
+      "tenant_name": "노지훈"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "300000",
+      "printed_account": "004-90-990707",
+      "holder": "노지훈"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "500000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "W11-others-lease",
+   "category": "welfare",
+   "title": "다른 사람 이름의 계약서를 낸 경우",
+   "applicant": {
+    "name": "이서연",
+    "birth": "000315"
+   },
+   "form": {
+    "applied_rent": "400000",
+    "handwritten_account": "110-123-100315"
+   },
+   "docs": {
+    "임대차계약서": {
+     "fields": {
+      "landlord_name": "최민수",
+      "landlord_birth": "701122",
+      "contract_rent": "400000",
+      "deposit": "10000000",
+      "tenant_name": "박서준"
+     }
+    },
+    "이체내역서": {
+     "fields": {
+      "latest_transfer": "400000",
+      "printed_account": "110-123-100315",
+      "holder": "이서연"
+     }
+    },
+    "신청서": {
+     "signed": true,
+     "fields": {
+      "applied_rent": "400000"
+     }
+    },
+    "금융정보동의서": {
+     "signed": true,
+     "fields": {}
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "auto",
+     "partial": "auto",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "S1-clean",
+   "category": "subsidy",
+   "title": "깨끗한 지원금 정산",
+   "applicant": {
+    "name": "장성민",
+    "birth": "750606"
+   },
+   "form": {
+    "org_name": "마을공동체협의회",
+    "program": "마을 환경 개선 사업",
+    "claimed_total": "750000"
+   },
+   "docs": {
+    "영수증철": {
+     "fields": {
+      "receipts": [
+       {
+        "approval": "71200451",
+        "vendor": "우리인쇄",
+        "date": "2026-10-05",
+        "time": "10:12",
+        "amount": "320000",
+        "item": "홍보물 인쇄"
+       },
+       {
+        "approval": "71200988",
+        "vendor": "대한문구",
+        "date": "2026-10-07",
+        "time": "15:40",
+        "amount": "180000",
+        "item": "사무용품"
+       },
+       {
+        "approval": "71201377",
+        "vendor": "푸른식품",
+        "date": "2026-10-12",
+        "time": "11:05",
+        "amount": "250000",
+        "item": "행사 다과"
+       }
+      ]
+     }
+    },
+    "정산총괄표": {
+     "fields": {
+      "claimed_total": "750000",
+      "org_name": "마을공동체협의회",
+      "program": "마을 환경 개선 사업"
+     }
+    },
+    "세금계산서": {
+     "fields": {}
+    },
+    "통장사본": {
+     "fields": {
+      "holder": "마을공동체협의회",
+      "account": "301-02-200606"
+     }
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "auto",
+     "partial": "auto",
+     "full": "auto"
+    }
+   }
+  },
+  {
+   "id": "S2-split-related",
+   "category": "subsidy",
+   "title": "쪼개기 결제와 총무 배우자 거래처",
+   "applicant": {
+    "name": "이수진",
+    "birth": "880512"
+   },
+   "form": {
+    "org_name": "청년문화연대",
+    "program": "청년 문화 행사 지원",
+    "claimed_total": "820000"
+   },
+   "docs": {
+    "영수증철": {
+     "fields": {
+      "receipts": [
+       {
+        "approval": "88290011",
+        "vendor": "(주)태성기획",
+        "date": "2026-10-14",
+        "time": "14:02",
+        "amount": "480000",
+        "item": "행사 인쇄물"
+       },
+       {
+        "approval": "88291044",
+        "vendor": "(주)태성기획",
+        "date": "2026-10-14",
+        "time": "14:05",
+        "amount": "340000",
+        "item": "행사 인쇄물"
+       }
+      ]
+     }
+    },
+    "정산총괄표": {
+     "fields": {
+      "claimed_total": "820000",
+      "org_name": "청년문화연대",
+      "program": "청년 문화 행사 지원"
+     }
+    },
+    "세금계산서": {
+     "fields": {}
+    },
+    "통장사본": {
+     "fields": {
+      "holder": "청년문화연대",
+      "account": "110-02-210512"
+     }
+    }
+   },
+   "officer": {
+    "trap": "rubber_stamp"
+   },
+   "expect": {
+    "verdict": "G3_VIOLATION_RELATED_VENDOR_SPLIT",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "S3-short-receipts",
+   "category": "subsidy",
+   "title": "증빙 18만 원 부족, 공무원의 금액 상향 시도",
+   "applicant": {
+    "name": "조아라",
+    "birth": "830303"
+   },
+   "form": {
+    "org_name": "소상공인상생회",
+    "program": "골목상권 활성화 사업",
+    "claimed_total": "1000000"
+   },
+   "docs": {
+    "영수증철": {
+     "fields": {
+      "receipts": [
+       {
+        "approval": "63100211",
+        "vendor": "우리인쇄",
+        "date": "2026-09-03",
+        "time": "09:30",
+        "amount": "420000",
+        "item": "홍보 전단"
+       },
+       {
+        "approval": "63100877",
+        "vendor": "대한문구",
+        "date": "2026-09-17",
+        "time": "16:20",
+        "amount": "400000",
+        "item": "행사 물품"
+       }
+      ]
+     }
+    },
+    "정산총괄표": {
+     "fields": {
+      "claimed_total": "1000000",
+      "org_name": "소상공인상생회",
+      "program": "골목상권 활성화 사업"
+     }
+    },
+    "세금계산서": {
+     "fields": {}
+    },
+    "통장사본": {
+     "fields": {
+      "holder": "소상공인상생회",
+      "account": "356-02-220303"
+     }
+    }
+   },
+   "officer": {
+    "trap": "unproven_edit",
+    "reduce_to": 820000
+   },
+   "expect": {
+    "verdict": "G3_HOLD_SIMPLE_RECEIPT_MISSING",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "S4-barred-item",
+   "category": "subsidy",
+   "title": "유흥주점 영수증 혼입",
+   "applicant": {
+    "name": "백승호",
+    "birth": "740404"
+   },
+   "form": {
+    "org_name": "동네문화모임",
+    "program": "주민 화합 행사",
+    "claimed_total": "500000"
+   },
+   "docs": {
+    "영수증철": {
+     "fields": {
+      "receipts": [
+       {
+        "approval": "54007711",
+        "vendor": "대한문구",
+        "date": "2026-08-20",
+        "time": "13:10",
+        "amount": "300000",
+        "item": "행사 물품"
+       },
+       {
+        "approval": "54008120",
+        "vendor": "달빛주점",
+        "date": "2026-08-22",
+        "time": "22:40",
+        "amount": "200000",
+        "item": "주류"
+       }
+      ]
+     }
+    },
+    "정산총괄표": {
+     "fields": {
+      "claimed_total": "500000",
+      "org_name": "동네문화모임",
+      "program": "주민 화합 행사"
+     }
+    },
+    "세금계산서": {
+     "fields": {}
+    },
+    "통장사본": {
+     "fields": {
+      "holder": "동네문화모임",
+      "account": "004-02-230404"
+     }
+    }
+   },
+   "officer": {
+    "reduce_to": 300000
+   },
+   "expect": {
+    "verdict": "G3_HOLD_SIMPLE_RECEIPT_MISSING",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "S5-duplicate-receipt",
+   "category": "subsidy",
+   "title": "같은 승인번호 영수증을 두 번 첨부",
+   "applicant": {
+    "name": "장성민",
+    "birth": "750606"
+   },
+   "form": {
+    "org_name": "마을공동체협의회",
+    "program": "마을 환경 개선 사업",
+    "claimed_total": "750000"
+   },
+   "docs": {
+    "영수증철": {
+     "fields": {
+      "receipts": [
+       {
+        "approval": "71200451",
+        "vendor": "우리인쇄",
+        "date": "2026-10-05",
+        "time": "10:12",
+        "amount": "320000",
+        "item": "홍보물 인쇄"
+       },
+       {
+        "approval": "71200451",
+        "vendor": "우리인쇄",
+        "date": "2026-10-05",
+        "time": "10:12",
+        "amount": "320000",
+        "item": "홍보물 인쇄"
+       },
+       {
+        "approval": "71200988",
+        "vendor": "대한문구",
+        "date": "2026-10-07",
+        "time": "15:40",
+        "amount": "180000",
+        "item": "사무용품"
+       },
+       {
+        "approval": "71201377",
+        "vendor": "푸른식품",
+        "date": "2026-10-12",
+        "time": "11:05",
+        "amount": "250000",
+        "item": "행사 다과"
+       }
+      ]
+     }
+    },
+    "정산총괄표": {
+     "fields": {
+      "claimed_total": "750000",
+      "org_name": "마을공동체협의회",
+      "program": "마을 환경 개선 사업"
+     }
+    },
+    "세금계산서": {
+     "fields": {}
+    },
+    "통장사본": {
+     "fields": {
+      "holder": "마을공동체협의회",
+      "account": "301-02-200606"
+     }
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "auto",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "P1-clean",
+   "category": "permit",
+   "title": "깨끗한 일반음식점 영업신고",
+   "applicant": {
+    "name": "박민수",
+    "birth": "800202"
+   },
+   "form": {
+    "business_name": "행복식당",
+    "business_type": "일반음식점",
+    "address": "서울특별시 강남구 테헤란로 1",
+    "area_m2": "66"
+   },
+   "docs": {
+    "건축물대장": {
+     "fields": {
+      "use": "제2종 근린생활시설",
+      "address": "서울특별시 강남구 테헤란로 1"
+     }
+    },
+    "위생교육필증": {
+     "fields": {
+      "issued": "2026-03-12",
+      "name": "박민수"
+     }
+    },
+    "소방안전필증": {
+     "fields": {
+      "issued": "2026-04-01",
+      "address": "서울특별시 강남구 테헤란로 1"
+     }
+    },
+    "영업신고서": {
+     "signed": true,
+     "fields": {
+      "business_name": "행복식당"
+     }
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "auto",
+     "partial": "auto",
+     "full": "auto"
+    }
+   }
+  },
+  {
+   "id": "P2-illegal-building",
+   "category": "permit",
+   "title": "위반건축물",
+   "applicant": {
+    "name": "황유진",
+    "birth": "820412"
+   },
+   "form": {
+    "business_name": "유진분식",
+    "business_type": "일반음식점",
+    "address": "서울특별시 성동구 왕십리로 22",
+    "area_m2": "48"
+   },
+   "docs": {
+    "건축물대장": {
+     "fields": {
+      "use": "제2종 근린생활시설",
+      "violation": "2025년 무단 증축 위반건축물, 이행강제금 부과",
+      "address": "서울특별시 성동구 왕십리로 22"
+     }
+    },
+    "위생교육필증": {
+     "fields": {
+      "issued": "2026-04-02",
+      "name": "황유진"
+     }
+    },
+    "소방안전필증": {
+     "fields": {
+      "issued": "2026-05-11",
+      "address": "서울특별시 성동구 왕십리로 22"
+     }
+    },
+    "영업신고서": {
+     "signed": true,
+     "fields": {
+      "business_name": "유진분식"
+     }
+    }
+   },
+   "officer": {
+    "trap": "rubber_stamp"
+   },
+   "expect": {
+    "verdict": "G3_VIOLATION_HIGH_RISK",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "P3-house-use",
+   "category": "permit",
+   "title": "단독주택에 일반음식점 신고",
+   "applicant": {
+    "name": "송지훈",
+    "birth": "790918"
+   },
+   "form": {
+    "business_name": "지훈식당",
+    "business_type": "일반음식점",
+    "address": "경기도 안양시 동안구 시민대로 9",
+    "area_m2": "70"
+   },
+   "docs": {
+    "건축물대장": {
+     "fields": {
+      "use": "단독주택",
+      "address": "경기도 안양시 동안구 시민대로 9"
+     }
+    },
+    "위생교육필증": {
+     "fields": {
+      "issued": "2026-05-19",
+      "name": "송지훈"
+     }
+    },
+    "소방안전필증": {
+     "fields": {
+      "issued": "2026-06-01",
+      "address": "경기도 안양시 동안구 시민대로 9"
+     }
+    },
+    "영업신고서": {
+     "signed": true,
+     "fields": {
+      "business_name": "지훈식당"
+     }
+    }
+   },
+   "officer": {
+    "trap": "rubber_stamp"
+   },
+   "expect": {
+    "verdict": "G3_VIOLATION_HIGH_RISK",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "P4-expired-hygiene",
+   "category": "permit",
+   "title": "위생교육필증 만료는 보완요구",
+   "applicant": {
+    "name": "권서연",
+    "birth": "860130"
+   },
+   "form": {
+    "business_name": "서연카페",
+    "business_type": "휴게음식점",
+    "address": "서울특별시 영등포구 국회대로 40",
+    "area_m2": "33"
+   },
+   "docs": {
+    "건축물대장": {
+     "fields": {
+      "use": "제1종 근린생활시설",
+      "address": "서울특별시 영등포구 국회대로 40"
+     }
+    },
+    "위생교육필증": {
+     "fields": {
+      "issued": "2023-11-20",
+      "name": "권서연"
+     }
+    },
+    "소방안전필증": {
+     "fields": {
+      "issued": "2026-02-01",
+      "address": "서울특별시 영등포구 국회대로 40"
+     }
+    },
+    "영업신고서": {
+     "signed": true,
+     "fields": {
+      "business_name": "서연카페"
+     }
+    }
+   },
+   "officer": {
+    "trap": "instant_reject",
+    "ends": "supplement"
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "P5-no-fire-cert",
+   "category": "permit",
+   "title": "소방안전필증 누락, 강제 진행 시도",
+   "applicant": {
+    "name": "조성민",
+    "birth": "880808"
+   },
+   "form": {
+    "business_name": "성민식당",
+    "business_type": "일반음식점",
+    "address": "서울특별시 강서구 공항대로 50",
+    "area_m2": "52"
+   },
+   "docs": {
+    "건축물대장": {
+     "fields": {
+      "use": "제2종 근린생활시설",
+      "address": "서울특별시 강서구 공항대로 50"
+     }
+    },
+    "위생교육필증": {
+     "fields": {
+      "issued": "2026-07-10",
+      "name": "조성민"
+     }
+    },
+    "영업신고서": {
+     "signed": true,
+     "fields": {
+      "business_name": "성민식당"
+     }
+    }
+   },
+   "officer": {
+    "trap": "force_pass",
+    "ends": "supplement"
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "P6-others-hygiene",
+   "category": "permit",
+   "title": "다른 사람 이름의 위생교육필증을 낸 경우",
+   "applicant": {
+    "name": "박민수",
+    "birth": "800202"
+   },
+   "form": {
+    "business_name": "행복식당",
+    "business_type": "일반음식점",
+    "address": "서울특별시 강남구 테헤란로 1",
+    "area_m2": "66"
+   },
+   "docs": {
+    "건축물대장": {
+     "fields": {
+      "use": "제2종 근린생활시설",
+      "address": "서울특별시 강남구 테헤란로 1"
+     }
+    },
+    "위생교육필증": {
+     "fields": {
+      "issued": "2026-03-12",
+      "name": "강민호",
+      "birth": "790101"
+     }
+    },
+    "소방안전필증": {
+     "fields": {
+      "issued": "2026-04-01",
+      "address": "서울특별시 강남구 테헤란로 1"
+     }
+    },
+    "영업신고서": {
+     "signed": true,
+     "fields": {
+      "business_name": "행복식당"
+     }
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "auto",
+     "partial": "auto",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "C1-clean",
+   "category": "cert",
+   "title": "유효한 위임장으로 인감증명 대리발급",
+   "applicant": {
+    "name": "정현우",
+    "birth": "750909"
+   },
+   "form": {
+    "principal_name": "최순자",
+    "principal_birth": "450505",
+    "relation": "자녀",
+    "document": "인감증명서",
+    "purpose": "부동산 매매",
+    "poa_date": "2026-10-01"
+   },
+   "docs": {
+    "위임장": {
+     "signed": true,
+     "fields": {
+      "poa_date": "2026-10-01",
+      "principal_name": "최순자",
+      "agent_name": "정현우"
+     }
+    },
+    "위임자신분증": {
+     "as": "신분증",
+     "fields": {
+      "name": "최순자",
+      "birth": "450505"
+     }
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "auto"
+    }
+   }
+  },
+  {
+   "id": "C2-expired-poa",
+   "category": "cert",
+   "title": "작성일 325일 지난 위임장",
+   "applicant": {
+    "name": "정현우",
+    "birth": "750909"
+   },
+   "form": {
+    "principal_name": "최순자",
+    "principal_birth": "450505",
+    "relation": "자녀",
+    "document": "인감증명서",
+    "purpose": "부동산 매매",
+    "poa_date": "2025-12-12"
+   },
+   "docs": {
+    "위임장": {
+     "signed": true,
+     "fields": {
+      "poa_date": "2025-12-12",
+      "principal_name": "최순자",
+      "agent_name": "정현우"
+     }
+    },
+    "위임자신분증": {
+     "as": "신분증",
+     "fields": {
+      "name": "최순자",
+      "birth": "450505"
+     }
+    }
+   },
+   "officer": {
+    "trap": "unmask"
+   },
+   "expect": {
+    "verdict": "G1_EXPIRED_MANDATORY_REJECT",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "C3-unsigned-poa",
+   "category": "cert",
+   "title": "위임자 서명이 없는 위임장",
+   "applicant": {
+    "name": "홍민기",
+    "birth": "810614"
+   },
+   "form": {
+    "principal_name": "홍길순",
+    "principal_birth": "520228",
+    "relation": "자녀",
+    "document": "인감증명서",
+    "purpose": "대출",
+    "poa_date": "2026-09-20"
+   },
+   "docs": {
+    "위임장": {
+     "signed": false,
+     "fields": {
+      "poa_date": "2026-09-20",
+      "principal_name": "홍길순",
+      "agent_name": "홍민기"
+     }
+    },
+    "위임자신분증": {
+     "as": "신분증",
+     "fields": {
+      "name": "홍길순",
+      "birth": "520228"
+     }
+    }
+   },
+   "expect": {
+    "verdict": "G3_ELIGIBLE_NORMAL",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "G1-noise",
+   "category": "grievance",
+   "title": "공사 소음 진정",
+   "applicant": {
+    "name": "오서연",
+    "birth": "550303"
+   },
+   "form": {
+    "body": "매일 아침 일곱 시부터 저녁 여덟 시까지 공사 소음이 이어져 일상생활이 어렵습니다. 방음벽을 설치해 주시기 바랍니다.",
+    "contact": "010-2345-6789"
+   },
+   "docs": {
+    "진정서": {
+     "fields": {
+      "text": "매일 아침 일곱 시부터 저녁 여덟 시까지 공사 소음이 이어져 일상생활이 어렵습니다. 방음벽을 설치해 주시기 바랍니다."
+     }
+    }
+   },
+   "expect": {
+    "verdict": null,
+    "department": "건설관리과",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "G2-road",
+   "category": "grievance",
+   "title": "도로 파손",
+   "applicant": {
+    "name": "한지민",
+    "birth": "810707"
+   },
+   "form": {
+    "body": "집 앞 도로가 크게 패여서 차량과 보행자가 다칠 위험이 있습니다. 파손된 구간을 다시 포장해 주시기 바랍니다.",
+    "contact": "010-3456-7788"
+   },
+   "docs": {
+    "진정서": {
+     "fields": {
+      "text": "집 앞 도로가 크게 패여서 차량과 보행자가 다칠 위험이 있습니다. 파손된 구간을 다시 포장해 주시기 바랍니다."
+     }
+    }
+   },
+   "expect": {
+    "verdict": null,
+    "department": "도로관리과",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "G3-trash",
+   "category": "grievance",
+   "title": "쓰레기 불법 투기",
+   "applicant": {
+    "name": "류승범",
+    "birth": "770214"
+   },
+   "form": {
+    "body": "골목에 쓰레기를 몰래 버리는 사람이 많아 냄새가 납니다. 불법 투기를 단속하고 쓰레기를 치워 주시기 바랍니다.",
+    "contact": "010-4567-8899"
+   },
+   "docs": {
+    "진정서": {
+     "fields": {
+      "text": "골목에 쓰레기를 몰래 버리는 사람이 많아 냄새가 납니다. 불법 투기를 단속하고 쓰레기를 치워 주시기 바랍니다."
+     }
+    }
+   },
+   "expect": {
+    "verdict": null,
+    "department": "청소행정과",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "G4-parking",
+   "category": "grievance",
+   "title": "불법 주정차",
+   "applicant": {
+    "name": "문가영",
+    "birth": "920521"
+   },
+   "form": {
+    "body": "학교 앞 횡단보도에 불법 주정차가 계속되어 아이들이 위험합니다. 주정차 단속을 늘려 주시기 바랍니다.",
+    "contact": "010-5678-9900"
+   },
+   "docs": {
+    "진정서": {
+     "fields": {
+      "text": "학교 앞 횡단보도에 불법 주정차가 계속되어 아이들이 위험합니다. 주정차 단속을 늘려 주시기 바랍니다."
+     }
+    }
+   },
+   "expect": {
+    "verdict": null,
+    "department": "교통행정과",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "G5-tax",
+   "category": "grievance",
+   "title": "세금 고지 오류",
+   "applicant": {
+    "name": "서강준",
+    "birth": "880930"
+   },
+   "form": {
+    "body": "이미 납부한 자동차세가 체납으로 고지되었습니다. 세금 고지 내용을 확인해 정정해 주시기 바랍니다.",
+    "contact": "010-6789-0011"
+   },
+   "docs": {
+    "진정서": {
+     "fields": {
+      "text": "이미 납부한 자동차세가 체납으로 고지되었습니다. 세금 고지 내용을 확인해 정정해 주시기 바랍니다."
+     }
+    }
+   },
+   "expect": {
+    "verdict": null,
+    "department": "세무과",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  },
+  {
+   "id": "G6-odor",
+   "category": "grievance",
+   "title": "음식점 악취",
+   "applicant": {
+    "name": "전소민",
+    "birth": "860118"
+   },
+   "form": {
+    "body": "건물 일층 음식점에서 나는 악취가 심해 창문을 열 수 없습니다. 악취를 줄이도록 조치해 주시기 바랍니다.",
+    "contact": "010-7890-1122"
+   },
+   "docs": {
+    "진정서": {
+     "fields": {
+      "text": "건물 일층 음식점에서 나는 악취가 심해 창문을 열 수 없습니다. 악취를 줄이도록 조치해 주시기 바랍니다."
+     }
+    }
+   },
+   "expect": {
+    "verdict": null,
+    "department": "환경위생과",
+    "by_mode": {
+     "none": "officer",
+     "id_only": "officer",
+     "partial": "officer",
+     "full": "officer"
+    }
+   }
+  }
+ ]
+}

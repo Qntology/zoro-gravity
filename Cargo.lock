@@ -7123,10 +7123,14 @@ dependencies = [
 name = "zorogravity-app"
 version = "0.1.0"
 dependencies = [
+ "candle-core",
+ "chrono",
+ "image",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
+ "zorogravity-core",
  "zorogravity-models",
 ]
 
@@ -7144,6 +7148,7 @@ dependencies = [
  "image",
  "memmap2",
  "rayon",
+ "serde",
  "serde_json",
  "sha2 0.10.9",
  "thiserror 2.0.21",

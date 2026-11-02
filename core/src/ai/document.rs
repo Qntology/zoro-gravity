@@ -13,6 +13,7 @@ use anyhow::{anyhow, Result};
 use image::imageops::{resize, FilterType};
 use image::{GrayImage, RgbImage};
 use rayon::prelude::*;
+use serde_json::json;
 
 use super::gocr::image::prepare as gocr_prepare;
 use super::gocr::{open as open_gocr, GocrEngine, GocrInput, OcrOutput, Strategy, EARLY_EXIT, TEXT_PROMPT};
@@ -23,6 +24,7 @@ use super::siglip2::ink::{deskew, estimate_skew, Bbox, InkPage};
 use super::siglip2::plan::{plan_page, plan_unfiltered, CropKind, CropPlan, PagePlan, PlanParams, Scores};
 use super::siglip2::probe::ProbeBank;
 use super::siglip2::Siglip2;
+use super::trace;
 
 /// 시각 앵커 파일 이름 (siglip2 모델 폴더 안)
 pub const PROBE_FILE: &str = "crop_probe.bin";
@@ -130,6 +132,7 @@ impl DocumentReader {
             .collect();
         let per_page = |t: Instant| t.elapsed().as_secs_f64() * 1e3 / pages.len().max(1) as f64;
         let layout_ms = per_page(t);
+        trace::record("규칙", "기울기 보정 · 잉크 분석", t.elapsed().as_secs_f64() * 1e3, json!({ "pages": pages.len() }));
 
         let Some(bank) = &self.probes else {
             let plan = |(image, skew, ink): (RgbImage, f32, InkPage)| {
@@ -143,6 +146,7 @@ impl DocumentReader {
         let inputs: Vec<PatchInput> = straight.par_iter().map(|(image, ..)| siglip2_prepare(image, patch, DEFAULT_MAX_PATCHES)).collect::<Result<_>>()?;
         let grids = self.siglip2.encode_images(&inputs)?;
         let siglip2_ms = per_page(t);
+        trace::record("siglip2", "패치 특징", t.elapsed().as_secs_f64() * 1e3, json!({ "pages": pages.len(), "patches": inputs.iter().map(|i| i.rows * i.cols).sum::<usize>() }));
         let t = Instant::now();
         let planned: Vec<(RgbImage, f32, PagePlan)> = straight
             .into_par_iter()
@@ -150,6 +154,13 @@ impl DocumentReader {
             .map(|((image, skew, ink), grid)| Ok((image, skew, plan_page(&ink, &Scores::new(bank, &grid)?, &self.options.plan))))
             .collect::<Result<_>>()?;
         let layout_ms = layout_ms + per_page(t);
+        if trace::enabled() {
+            let pages: Vec<_> = planned
+                .iter()
+                .map(|(_, skew, plan)| json!({ "skew": skew, "crops": plan.crops.iter().map(|c| json!({ "kind": c.kind.name(), "bbox": [c.bbox.0, c.bbox.1, c.bbox.2, c.bbox.3] })).collect::<Vec<_>>() }))
+                .collect();
+            trace::record("규칙", "조각 계획", t.elapsed().as_secs_f64() * 1e3, json!({ "pages": pages }));
+        }
         Ok(planned.into_iter().map(|(image, skew, plan)| (image, skew, plan, Timings { layout_ms, siglip2_ms, ocr_ms: 0.0 })).collect())
     }
 
@@ -178,6 +189,18 @@ impl DocumentReader {
             .collect::<Result<_>>()?;
         let outputs = self.gocr.recognize(&inputs)?;
         let ocr_ms = t.elapsed().as_secs_f64() * 1e3 / pages.len().max(1) as f64;
+        if trace::enabled() {
+            let texts: Vec<_> = if trace::with_text() { outputs.iter().map(|o| json!({ "text": o.text, "conf": o.min_confidence })).collect() } else { Vec::new() };
+            let detail = json!({
+                "crops": outputs.len(),
+                "tokens": outputs.iter().map(|o| o.tokens.len()).sum::<usize>(),
+                "image_tokens": outputs.iter().map(|o| o.image_tokens).sum::<usize>(),
+                "drafts": outputs.iter().map(|o| o.drafts).sum::<usize>(),
+                "verifies": outputs.iter().map(|o| o.verifies).sum::<usize>(),
+                "texts": texts,
+            });
+            trace::record("gocr", "결과", 0.0, detail);
+        }
         let mut outputs = outputs.into_iter();
         Ok(planned
             .into_iter()

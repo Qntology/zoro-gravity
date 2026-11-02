@@ -46,6 +46,7 @@ fn clean_welfare(id: &str) -> CaseFile {
     CaseFile {
         case_id: id.into(),
         category: Category::Welfare,
+        source: Default::default(),
         docs: vec![
             doc("신청서", "h1"),
             doc("임대차계약서", "h2"),
@@ -66,6 +67,8 @@ fn clean_welfare(id: &str) -> CaseFile {
         relations: vec![],
         supplement_count: 0,
         grievance_text: None,
+        contact: None,
+        intake: Default::default(),
     }
 }
 
@@ -385,6 +388,26 @@ fn grievances_always_go_to_an_officer() -> Result<()> {
     let mut e = auto_engine(Some(model))?;
     let out = e.run(c, now())?;
     assert!(matches!(out, CaseOutcome::OfficerReview { .. }), "{out:?}");
+    Ok(())
+}
+
+/// 몇 번 물었는지 세는 대역
+struct Counts(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+impl DecisionModel for Counts {
+    fn probabilities(&self, task: &DecisionTask) -> anyhow::Result<Vec<f32>> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let n = task.options.len();
+        Ok(vec![1.0 / n as f32; n])
+    }
+}
+
+#[test]
+fn the_category_is_never_asked_of_the_model() -> Result<()> {
+    let asked = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut e = Engine::new(SALT, AutomationPolicy::default(), Some(Box::new(Counts(asked.clone()))));
+    e.run(grievance("c-asked", NOISE), now())?;
+    assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 0, "고충민원은 Gate 0 에서 끝나고, Gate 0 은 모델에 묻지 않습니다");
     Ok(())
 }
 
