@@ -15,7 +15,7 @@ AI 엔진은 candle 입니다. AMD GPU 연동은 [Qntology/candle-rocm-vulkan](h
 | --- | --- | --- | --- |
 | **Vulkan** (기본) | `vulkan` | 드라이버의 `vulkan-1.dll`. SDK 불필요 | ✅ 동작 확인 |
 | **ROCm/HIP** | `rocm` | HIP SDK 7.2 (`hipcc`, `amdhip64`, `rocblas`), **MSVC 14.44 툴셋** | ✅ 동작 확인 (2절) |
-| **CUDA** | `cuda` | NVIDIA 드라이버, CUDA Toolkit (`nvcc`), Windows 는 MSVC | ⚠️ 빌드 · 실행 미검증 (2.1절) |
+| **CUDA** | `cuda` | NVIDIA 드라이버, CUDA Toolkit (`nvcc`), Windows 는 MSVC | ⚠️ 실행 미검증. 빌드는 CI 에서 확인 (2.1절) |
 | **Metal** | `metal` | Apple Silicon 맥. 따로 설치할 것 없음 | 해당 없음 (2.2절) |
 
 `ZOROGRAVITY_DEVICE` 로 고릅니다. `auto`(기본)는 CUDA → ROCm → Metal → Vulkan → CPU 순서로 처음 열리는 장치를 씁니다. 맥의 Vulkan(MoltenVK)은 Metal 위에서 도는 변환 층이라서 Metal 을 먼저 봅니다.
@@ -64,7 +64,7 @@ target\debug\examples\qmatmul_check.exe %LOCALAPPDATA%\zorogravity\models\zoro
 - `scripts\cuda-env.bat` 은 `vcvars64.bat` 을 호출하고 `CUDA_PATH` 의 `bin` 을 `PATH` 에 넣습니다. CUDA 13 헤더를 위해 `NVCC_PREPEND_FLAGS=-Xcompiler /Zc:preprocessor` 를 줍니다 (logis-center 와 같습니다).
 - 가중치 dtype 은 Vulkan 과 같이 F32 입니다. 비전 타워가 ROCm 의 BF16 보다 VRAM 을 두 배 씁니다.
 - 양자화 곱은 `forward_exact` 를 씁니다. CUDA 의 기본 곱은 활성값을 8비트로 줄여서 ROCm · Vulkan 과 확률이 달라지기 때문입니다.
-- **미검증**: 이 PC 에는 NVIDIA GPU 와 `nvcc` 가 없어서 CUDA 기능으로 빌드하지 못했습니다. 포크의 CUDA 경로를 쓰도록 연결만 했고, 판단 · 읽기 수치는 없습니다. 자가 검증(`verify`)이 장치 커널과 CPU 결과를 비교합니다. 자동화 기준 0.95 도 CUDA 에서 다시 재야 합니다.
+- **미검증**: 이 PC 에는 NVIDIA GPU 와 `nvcc` 가 없습니다. CI 의 `linux-cuda` · `windows-cuda` 가 실제 `nvcc` 로 커널까지 빌드하고 타입 검사를 통과하지만 ([ci.md](ci.md)) 실행은 해 보지 않았습니다. 판단 · 읽기 수치는 없습니다. 자가 검증(`verify`)이 장치 커널과 CPU 결과를 비교합니다. 자동화 기준 0.95 도 CUDA 에서 다시 재야 합니다.
 
 ## 2.2 Metal 빌드
 
@@ -180,7 +180,7 @@ zoro 32층 순전파 하나의 시간입니다 (층마다 기다려서 재서 �
 
 **FP8 은 근사입니다.** logis-center 측정에서 짧은 JSON 추출은 원본과 다음 토큰이 100% 같았지만 수천 토큰의 긴 서술에서는 4% 안팎의 스텝에서 1순위 토큰이 바뀌었습니다. 그래서 기본은 메모리가 모자랄 때만 압축합니다. 압축 중에는 추측의 양에 따라 글이 달라질 수 있고(읽는 묶음에 따라 새 토큰이 원본이거나 FP8 입니다), 공문서 초안의 재현성이 중요하면 `exact` 를 쓰세요.
 
-**미검증**: CPU 코덱으로 단위 테스트만 했습니다. 실제 GPU · 실제 모델의 속도, 메모리, 오차, 글 변화는 재지 않았습니다. Vulkan 은 일반 텐서가 시스템 메모리에 있어서 `auto` 가 보는 장치 여유와 KV 가 실제로 쓰는 메모리가 다릅니다 (3.4절).
+**미검증**: CPU 코덱 단위 테스트와, CI 의 lavapipe(소프트웨어 Vulkan)에서 합성 입력으로 한 장치 시험만 통과했습니다. 실제 GPU · 실제 모델의 속도, 메모리, 오차, 글 변화는 재지 않았습니다. Vulkan 은 일반 텐서가 시스템 메모리에 있어서 `auto` 가 보는 장치 여유와 KV 가 실제로 쓰는 메모리가 다릅니다 (3.4절).
 
 ## 4. 알려진 문제
 

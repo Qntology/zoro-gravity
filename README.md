@@ -31,7 +31,7 @@
 | CI (Linux · macOS · Windows) | 구현 (`cross-verify`). 푸시마다 시험 전체와 장치 시험을 돌립니다. [docs/ci.md](docs/ci.md) |
 | HWP 문서 생성 (rhwp) | 구현 (`tools/hwp-builder`, 내부결재용 · 교부용, 금지어 · 확정 수치 검사). 심사 흐름과 앱 편집기에는 아직 연결 안 됨 |
 | 모델 다운로드 · 삭제 (AppData, 진행률 표시) | 구현 (`tools/model-settings`, 앱 설정 화면) |
-| KV 캐시 FP8 (ROCm · Vulkan · CUDA) | 구현 (`ai::kv_turbo`). CPU 단위 테스트만 통과했고 **GPU 에서는 아직 돌려 보지 않았습니다** |
+| KV 캐시 FP8 (ROCm · Vulkan · CUDA) | 구현 (`ai::kv_turbo`). CPU 단위 테스트와 CI 의 소프트웨어 Vulkan 시험만 통과했고 **실제 GPU 에서는 아직 돌려 보지 않았습니다** |
 | Tauri 앱 (`app`) | **구현**. 민원인 키오스크(서류 넣기 → 내용 확인 → 결과)와 공무원 콘솔(사유 → 남은 확인 → 처리). 실제 모델로 끝까지 돕니다. 스캐너는 폴더로 대신합니다. 검증 결과는 [docs/stabilization-report.md](docs/stabilization-report.md) |
 | 영속 저장 (SQLite) | 미구현 (메모리) |
 | 사건 간 관계망 누적 | 미구현 (법무 검토 필요) |
