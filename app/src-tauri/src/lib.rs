@@ -730,7 +730,7 @@ fn console_status(window: Window, desk: State<'_, Desk>) -> Result<ConsoleDto, S
 /// 모델을 뒤에서 엽니다. 가중치가 받아질 때까지 기다리고, 열리면 엔진에 꽂습니다.
 fn load_models(app: AppHandle) {
     let desk = app.state::<Desk>();
-    let gpu_build = cfg!(any(feature = "vulkan", feature = "rocm", feature = "cuda"));
+    let gpu_build = cfg!(any(feature = "vulkan", feature = "rocm", feature = "cuda", feature = "metal"));
     if !gpu_build || std::env::var("ZOROGRAVITY_ENGINE").is_ok_and(|v| v == "rules") {
         *desk.status.lock().unwrap_or_else(|p| p.into_inner()) = "규칙만 (모델 없음)".to_string();
         *desk.loaded.lock().unwrap_or_else(|p| p.into_inner()) = true;

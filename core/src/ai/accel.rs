@@ -1,11 +1,12 @@
 //! 장치 선택과 dtype 정책.
-//! 순서는 logis-center `utils/device_utils.rs` 와 같습니다: CUDA → ROCm → Vulkan → CPU.
+//! 순서는 logis-center `utils/device_utils.rs` 와 같습니다: CUDA → ROCm → Metal → Vulkan → CPU.
+//! Metal 을 Vulkan 앞에 둡니다. 맥의 Vulkan(MoltenVK)은 Metal 위에서 도는 변환 층이기 때문입니다.
 //! 장치가 없거나 기능이 빠졌으면 다음 후보로 넘어가고, 열기에 실패한 이유는 한 줄로 남깁니다.
 
 use anyhow::{Result, anyhow, bail};
 use candle_core::{DType, Device};
 
-/// 장치 선택 환경 변수: `auto`(기본) · `cuda` · `rocm` · `vulkan` · `cpu`
+/// 장치 선택 환경 변수: `auto`(기본) · `cuda` · `rocm` · `metal` · `vulkan` · `cpu`
 pub const DEVICE_ENV: &str = "ZOROGRAVITY_DEVICE";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -13,6 +14,7 @@ pub enum DevicePref {
     Auto,
     Cuda,
     Rocm,
+    Metal,
     Vulkan,
     Cpu,
 }
@@ -23,9 +25,10 @@ impl DevicePref {
             "" | "auto" => Ok(Self::Auto),
             "cuda" | "nvidia" => Ok(Self::Cuda),
             "rocm" | "hip" => Ok(Self::Rocm),
+            "metal" => Ok(Self::Metal),
             "vulkan" => Ok(Self::Vulkan),
             "cpu" => Ok(Self::Cpu),
-            other => bail!("{DEVICE_ENV}={other:?}: auto, cuda, rocm, vulkan, cpu 중 하나여야 합니다"),
+            other => bail!("{DEVICE_ENV}={other:?}: auto, cuda, rocm, metal, vulkan, cpu 중 하나여야 합니다"),
         }
     }
 
@@ -51,6 +54,9 @@ pub fn select_device_with(pref: DevicePref) -> Result<Device> {
         DevicePref::Rocm => open_rocm()?.ok_or_else(|| {
             anyhow!("ROCm 장치를 열 수 없습니다. rocm 기능으로 빌드했는지, HIP SDK 와 드라이버가 있는지 확인하세요 (docs/gpu-backends.md)")
         }),
+        DevicePref::Metal => open_metal()?.ok_or_else(|| {
+            anyhow!("Metal 장치를 열 수 없습니다. metal 기능으로 빌드했는지, Metal 을 지원하는 맥인지 확인하세요 (docs/gpu-backends.md)")
+        }),
         DevicePref::Vulkan => open_vulkan()?
             .ok_or_else(|| anyhow!("Vulkan 장치가 없습니다. Vulkan 로더(vulkan-1.dll, libvulkan)와 GPU 드라이버를 확인하세요")),
         DevicePref::Auto => {
@@ -62,7 +68,12 @@ pub fn select_device_with(pref: DevicePref) -> Result<Device> {
             match open_rocm() {
                 Ok(Some(d)) => return Ok(d),
                 Ok(None) => {}
-                Err(e) => eprintln!("[ZOROGRAVITY-ACCEL] ROCm 장치 열기 실패 → Vulkan 으로 넘어갑니다: {e}"),
+                Err(e) => eprintln!("[ZOROGRAVITY-ACCEL] ROCm 장치 열기 실패 → Metal 로 넘어갑니다: {e}"),
+            }
+            match open_metal() {
+                Ok(Some(d)) => return Ok(d),
+                Ok(None) => {}
+                Err(e) => eprintln!("[ZOROGRAVITY-ACCEL] Metal 장치 열기 실패 → Vulkan 으로 넘어갑니다: {e}"),
             }
             match open_vulkan() {
                 Ok(Some(d)) => return Ok(d),
@@ -74,7 +85,7 @@ pub fn select_device_with(pref: DevicePref) -> Result<Device> {
     }
 }
 
-/// 쓸 GPU 번호를 직접 정하는 환경 변수. 없으면 여유 VRAM 이 가장 많은 GPU 를 고릅니다 (Vulkan 은 0번).
+/// 쓸 GPU 번호를 직접 정하는 환경 변수. 없으면 여유 VRAM 이 가장 많은 GPU 를 고릅니다 (Metal · Vulkan 은 0번).
 pub const GPU_ENV: &str = "ZOROGRAVITY_GPU";
 
 #[cfg_attr(not(any(test, feature = "cuda", feature = "rocm")), allow(dead_code))]
@@ -163,6 +174,22 @@ fn open_rocm() -> Result<Option<Device>> {
     Ok(None)
 }
 
+/// 포크의 `Device::new_metal` 은 장치가 없으면 오류를 돌려주지 않고 패닉합니다 (GPU 없는 가상 맥).
+/// 그 경우를 장치가 없는 것으로 보아서 `auto` 가 다음 후보로 넘어가게 합니다.
+#[cfg(feature = "metal")]
+fn open_metal() -> Result<Option<Device>> {
+    let id = gpu_override()?.unwrap_or(0);
+    match std::panic::catch_unwind(|| Device::new_metal(id)) {
+        Ok(device) => Ok(Some(device?)),
+        Err(_) => Ok(None),
+    }
+}
+
+#[cfg(not(feature = "metal"))]
+fn open_metal() -> Result<Option<Device>> {
+    Ok(None)
+}
+
 #[cfg(feature = "vulkan")]
 fn open_vulkan() -> Result<Option<Device>> {
     if candle_core::vulkan_backend::device_count().unwrap_or(0) == 0 {
@@ -216,17 +243,27 @@ pub fn finish_process(device: &Device, code: u32) {
 }
 
 pub fn is_gpu(device: &Device) -> bool {
-    matches!(device, Device::Cuda(_) | Device::Rocm(_) | Device::Vulkan(_))
+    matches!(device, Device::Cuda(_) | Device::Rocm(_) | Device::Metal(_) | Device::Vulkan(_))
 }
 
 pub fn backend_name(device: &Device) -> &'static str {
     match device {
         Device::Cuda(_) => "cuda",
         Device::Rocm(_) => "rocm",
+        Device::Metal(_) => "metal",
         Device::Vulkan(_) => "vulkan",
         Device::Cpu => "cpu",
         _ => "other",
     }
+}
+
+/// 장치 시험(`device_` 로 시작하고 `#[ignore]` 가 붙은 시험)이 쓸 GPU. `ZOROGRAVITY_DEVICE` 로 고릅니다.
+/// GPU 를 열지 못하면 실패합니다. 건너뛰고 통과하는 일이 없도록 CI 는 시험이 남긴 `[DEVICE-CHECK]` 줄의 수까지 확인합니다.
+#[cfg(test)]
+pub(crate) fn test_gpu() -> Device {
+    let device = select_device().expect("장치를 열 수 없습니다");
+    assert!(is_gpu(&device), "{DEVICE_ENV} 로 GPU 를 고르세요 (지금은 {})", backend_name(&device));
+    device
 }
 
 #[cfg(test)]
@@ -238,6 +275,7 @@ mod tests {
         assert_eq!(DevicePref::parse("").unwrap(), DevicePref::Auto);
         assert_eq!(DevicePref::parse(" AUTO ").unwrap(), DevicePref::Auto);
         assert_eq!(DevicePref::parse("hip").unwrap(), DevicePref::Rocm);
+        assert_eq!(DevicePref::parse("Metal").unwrap(), DevicePref::Metal);
         assert_eq!(DevicePref::parse("Vulkan").unwrap(), DevicePref::Vulkan);
         assert_eq!(DevicePref::parse("cpu").unwrap(), DevicePref::Cpu);
         assert_eq!(DevicePref::parse("CUDA").unwrap(), DevicePref::Cuda);

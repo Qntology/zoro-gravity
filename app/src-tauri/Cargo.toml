@@ -17,6 +17,7 @@ default = ["vulkan"]
 vulkan = ["zorogravity-core/vulkan"]
 rocm = ["zorogravity-core/rocm"]
 cuda = ["zorogravity-core/cuda"]
+metal = ["zorogravity-core/metal"]
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

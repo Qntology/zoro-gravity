@@ -154,10 +154,11 @@ pub fn encode_batch(cfg: &GocrConfig, w: &Loaded, imgs: &[&PreparedImage], devic
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::accel;
     use crate::ai::gocr::{GocrInput, GocrVision, VisionFeatures};
     use crate::ai::ocr::{PhaseCtx, VisionEncoder};
     use crate::ai::residency::{Budget, Group, ModelId, ModelSpec, Phase, Residency};
-    use crate::ai::verify::det_normal;
+    use crate::ai::verify::{det_normal, rel_err};
     use crate::ai::weights::testing::{write_gguf, TempDir};
     use crate::ai::weights::WeightFile;
     use candle_core::quantized::gguf_file::Value;
@@ -273,6 +274,26 @@ mod tests {
         assert!((a - b)?.abs()?.max_all()?.to_scalar::<f32>()? > 1e-3, "서로 다른 이미지는 결과가 달라야 합니다");
         assert!(encode_batch(&c, &h[0], &[&images[0], &image(9, 4, 4)], &Device::Cpu).is_err(), "격자가 다르면 묶지 않습니다");
         assert!(encode_batch(&c, &h[0], &[], &Device::Cpu).is_err());
+        Ok(())
+    }
+
+    #[test]
+    #[ignore = "GPU 가 필요합니다"]
+    fn device_vision_matches_the_cpu() -> Result<()> {
+        let device = accel::test_gpu();
+        let dir = TempDir::new("gocr-gpu");
+        let spec = tiny_spec(&dir);
+        let c = cfg();
+        let images: Vec<PreparedImage> = (0..3).map(|s| image(40 + s, 4, 6)).collect();
+        let refs: Vec<&PreparedImage> = images.iter().collect();
+        let on = |d: &Device| -> Result<Tensor> {
+            let mut res = Residency::new(d.clone(), Budget::unlimited());
+            let h = res.enter(&spec, &Phase::new("비전", [Group::Vision]))?;
+            Ok(encode_batch(&c, &h[0], &refs, d)?.to_device(&Device::Cpu)?)
+        };
+        let err = rel_err(&on(&device)?, &on(&Device::Cpu)?)?;
+        assert!(err < 1e-3, "{err}");
+        println!("[DEVICE-CHECK] {} gocr 비전: CPU 대비 상대오차 {err:.1e}", accel::backend_name(&device));
         Ok(())
     }
 

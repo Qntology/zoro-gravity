@@ -34,3 +34,5 @@ vulkan = ["candle-core/vulkan", "candle-nn/vulkan"]
 rocm = ["dep:candle-rocm", "candle-core/rocm", "candle-nn/rocm"]
 # NVIDIA CUDA. 커널을 빌드 때 nvcc 로 컴파일하므로 CUDA Toolkit 이 있어야 합니다. docs/gpu-backends.md 참고.
 cuda = ["candle-core/cuda", "candle-nn/cuda"]
+# Apple Metal. macOS 에서만 빌드되고 따로 설치할 것은 없습니다. docs/gpu-backends.md 참고.
+metal = ["candle-core/metal", "candle-nn/metal"]
