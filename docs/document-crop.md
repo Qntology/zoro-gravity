@@ -9,7 +9,7 @@
 | --- | --- |
 | 모델 | `google/siglip2-so400m-patch16-naflex` (**Apache-2.0**) |
 | 위치 | 모델 폴더의 `siglip2` (`%LOCALAPPDATA%\zorogravity\models\siglip2` 등) |
-| 변환 | `zorogravity-gguf auto %LOCALAPPDATA%\zorogravity\models\siglip2` → `siglip2-q8.gguf` 0.88 GB + `mmproj-siglip2-bf16.gguf` 0.86 GB (비전 BF16, 텍스트 Q8_0). 텍스트 층 출력 상대오차 평균 0.54% |
+| 받기 | 앱 설정 화면에서 [Qntology/siglip2-so400m-patch16-naflex-gguf](https://huggingface.co/Qntology/siglip2-so400m-patch16-naflex-gguf) 를 받습니다 (`siglip2-q8.gguf` 0.88 GB + `mmproj-siglip2-bf16.gguf` 0.86 GB, 비전 BF16, 텍스트 Q8_0). 원본 `google/siglip2-so400m-patch16-naflex` 에서 직접 바꾸려면 `zorogravity-gguf auto %LOCALAPPDATA%\zorogravity\models\siglip2` 를 씁니다. 텍스트 층 출력 상대오차 평균 0.54% |
 | 단계 | 페이지를 읽을 때는 **비전 타워만** (ROCm 816 MB), 문구를 인코딩할 때는 텍스트 타워만. 실행 중에는 텍스트 타워가 올라오지 않습니다 |
 | 격자 | 패치 16 px, 페이지당 최대 256 패치. A4 는 19×13 격자라서 **칸 하나가 글자 여러 줄을 덮습니다** |
 

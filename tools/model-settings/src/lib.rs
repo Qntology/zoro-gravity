@@ -83,7 +83,18 @@ pub const CATALOG: [ModelEntry; 3] = [
             file("active.json", 216),
         ],
     },
-    ModelEntry { name: "siglip2", label: "SigLIP2 문서 크롭", license: "Apache-2.0", repo: None, files: &[] },
+    ModelEntry {
+        name: "siglip2",
+        label: "SigLIP2 문서 크롭",
+        license: "Apache-2.0",
+        repo: Some("Qntology/siglip2-so400m-patch16-naflex-gguf"),
+        files: &[
+            file("siglip2-q8.gguf", 878_951_840),
+            file("mmproj-siglip2-bf16.gguf", 855_814_752),
+            file("tokenizer.json", 34_356_304),
+            file("active.json", 208),
+        ],
+    },
 ];
 
 pub fn entry(name: &str) -> Option<&'static ModelEntry> {
@@ -232,6 +243,7 @@ mod tests {
     fn the_catalog_uses_the_given_repositories_and_ends_with_the_active_record() {
         assert_eq!(entry("zoro").unwrap().repo, Some("Qntology/zoro-1-gguf"));
         assert_eq!(entry("gocr").unwrap().repo, Some("Qntology/GravityOCR-KO-gguf"));
+        assert_eq!(entry("siglip2").unwrap().repo, Some("Qntology/siglip2-so400m-patch16-naflex-gguf"));
         assert!(entry("없음").is_none());
         for e in CATALOG.iter().filter(|e| e.repo.is_some()) {
             assert_eq!(e.files.last().unwrap().name, "active.json", "{}", e.name);
@@ -249,9 +261,11 @@ mod tests {
         let names: Vec<&str> = entry("zoro").unwrap().files.iter().map(|f| f.name).collect();
         fill(&zoro, &names);
         assert!(status()[0].installed);
-        // 내려받을 수 없는 모델은 직접 넣은 선택 기록을 봅니다.
+        let siglip2 = t.path().join("siglip2");
+        fill(&siglip2, &["siglip2-q8.gguf"]);
         assert!(!status()[2].installed);
-        fill(&t.path().join("siglip2"), &["active.json"]);
+        let names: Vec<&str> = entry("siglip2").unwrap().files.iter().map(|f| f.name).collect();
+        fill(&siglip2, &names);
         assert!(status()[2].installed);
     }
 
