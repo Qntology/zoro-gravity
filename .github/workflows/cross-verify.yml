@@ -225,7 +225,7 @@ jobs:
         env:
           ZOROGRAVITY_DEVICE: ${{ matrix.device }}
           # 장치 시험 수. 시험을 더하면 같이 올립니다.
-          DEVICE_CHECKS: "6"
+          DEVICE_CHECKS: "7"
         run: |
           . .github/scripts/annot.sh; set +e
           cargo test $TEST_ARGS --lib -- device_ --ignored --nocapture --test-threads 1 2>&1 | tee "$RUNNER_TEMP/device.log" | tail -5
@@ -235,7 +235,7 @@ jobs:
           if [ "$n" != "$DEVICE_CHECKS" ]; then
             echo "::error title=device::장치 시험 ${DEVICE_CHECKS}개 중 ${n}개만 돌았습니다. 건너뛴 시험은 통과가 아닙니다"; exit 1
           fi
-          notice_lines "device (${{ matrix.device }})" "$RUNNER_TEMP/device.log" '\[DEVICE-CHECK\]|\[ZOROGRAVITY-ACCEL\] .*(통과|❌)'
+          notice_lines "device (${{ matrix.device }})" "$RUNNER_TEMP/device.log" '\[DEVICE-CHECK\]|\[DEVICE-OP\]|\[ZOROGRAVITY-ACCEL\] .*(통과|❌)'
       - name: 앱 빌드
         if: matrix.kind == 'run' || matrix.kind == 'build'
         working-directory: zoro-gravity

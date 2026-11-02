@@ -24,10 +24,11 @@
 ## 시험
 
 - **시험 전체**: `cargo test --workspace` 에서 앱을 뺀 것입니다. `--ignored` 시험은 돌리지 않습니다. 실제 모델 파일(`real_models`)은 CI 에 없습니다.
-- **장치 시험**: 이름이 `device_` 로 시작하는 `#[ignore]` 시험 6개입니다. 합성 모델을 그 장치에서 돌려 스칼라 기준 구현이나 CPU 결과와 비교합니다.
+- **장치 시험**: 이름이 `device_` 로 시작하는 `#[ignore]` 시험 7개입니다. 합성 모델을 그 장치에서 돌려 스칼라 기준 구현이나 CPU 결과와 비교합니다.
 
 | 시험 | 보는 것 |
 | --- | --- |
+| `device_basic_ops_match_the_cpu` | 주의 층의 기본 연산과 Q8_0 곱 하나씩. 틀린 연산을 `[DEVICE-OP]` 줄로 알려 줍니다 |
 | `device_text_matches_the_scalar_reference` | zoro 순전파, 이어 읽기, 글쓰기, q8 가중치 |
 | `device_vision_matches_the_cpu` | gocr 비전 인코더 |
 | `device_decoder_matches_the_cpu` | gocr 언어 디코더와 KV 캐시 |

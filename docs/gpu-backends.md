@@ -66,6 +66,22 @@ target\debug\examples\qmatmul_check.exe %LOCALAPPDATA%\zorogravity\models\zoro
 - 양자화 곱은 `forward_exact` 를 씁니다. CUDA 의 기본 곱은 활성값을 8비트로 줄여서 ROCm · Vulkan 과 확률이 달라지기 때문입니다.
 - **미검증**: 이 PC 에는 NVIDIA GPU 와 `nvcc` 가 없어서 CUDA 기능으로 빌드하지 못했습니다. 포크의 CUDA 경로를 쓰도록 연결만 했고, 판단 · 읽기 수치는 없습니다. 자가 검증(`verify`)이 장치 커널과 CPU 결과를 비교합니다. 자동화 기준 0.95 도 CUDA 에서 다시 재야 합니다.
 
+## 2.2 Metal 빌드
+
+```sh
+cargo build -p zorogravity-core --release --no-default-features --features metal --example decide_probe
+ZOROGRAVITY_DEVICE=metal target/release/examples/decide_probe
+```
+
+`run/macos/metal.command` 가 같은 일을 하고, 맥의 앱(`run/macos/app.command`)도 Metal 로 돕니다.
+
+- 포크의 Metal 백엔드를 그대로 씁니다. `candle-metal-kernels` 는 logis-center 에서 검증한 0.11.0 으로 `Cargo.lock` 에 고정했습니다.
+- **dtype**: Vulkan · CUDA 와 같이 F32 입니다. 비전 타워의 BF16 가중치는 올릴 때 F32 로 풉니다.
+- **메모리**: 통합 메모리라서 포크는 `recommendedMaxWorkingSetSize − currentAllocatedSize` 를 여유로 돌려줍니다. Metal 은 다 쓴 작업 버퍼를 동기화할 때 돌려주므로 `Residency` 는 올리기 전에 동기화합니다. 그러지 않으면 올리는 동안 돌아온 버퍼 때문에 여유가 덜 줄어든 것처럼 보여서 `WeightsLeftOnHost` 로 잘못 거부합니다. `device_loading_is_measured_and_releasing_returns_the_memory` 가 이 경우를 재현합니다.
+- **장치가 없는 맥**: GPU 없는 가상 맥에서 포크의 `Device::new_metal` 은 오류 대신 패닉합니다. `open_metal` 이 이를 장치 없음으로 바꿔서 `auto` 는 다음 후보로 넘어갑니다.
+- **KV FP8**: 포크에 Metal 용 TurboQuant 커널이 없어서 같은 형식을 CPU 코덱으로 압축합니다 (3.7절). 값은 같고 느립니다. 기본 `auto` 는 메모리가 모자랄 때만 압축합니다.
+- **자기 추측**: 재 본 적이 없어서 끕니다 (`speculation_for`). `ZOROGRAVITY_ZORO_SPECULATION` 으로 켤 수 있습니다.
+
 ## 3. 실측 (RX 6600)
 
 ### 3.1 양자화 행렬곱 (`qmatmul_check`, zoro 의 실제 GGUF 가중치)
@@ -147,7 +163,7 @@ zoro 32층 순전파 하나의 시간입니다 (층마다 기다려서 재서 �
 
 ### 3.7 KV 캐시 FP8
 
-**ROCm · Vulkan · CUDA 모두 가능합니다.** 포크가 세 백엔드 모두에 FP8 압축 · 복원 · 압축 행 어텐션 커널(`tq_quantize` · `tq_dequantize` · `tq_attention`)을 갖고 있습니다 (Vulkan 은 GLSL 포팅). `ai::kv_turbo` 가 logis-center 의 `kv_turbo.rs` · `accel_check.rs` 와 같은 정책으로 씁니다. 스케일 없는 `to_dtype(F8E4M3)` 캐스팅은 쓰지 않습니다. 448 을 넘으면 포화하고 작은 값은 사라지기 때문입니다.
+**ROCm · Vulkan · CUDA 모두 가능합니다.** 포크가 세 백엔드 모두에 FP8 압축 · 복원 · 압축 행 어텐션 커널(`tq_quantize` · `tq_dequantize` · `tq_attention`)을 갖고 있습니다 (Vulkan 은 GLSL 포팅). Metal 에는 이 커널이 없어서 포크의 CPU 코덱으로 압축합니다. `ai::kv_turbo` 가 logis-center 의 `kv_turbo.rs` · `accel_check.rs` 와 같은 정책으로 씁니다. 스케일 없는 `to_dtype(F8E4M3)` 캐스팅은 쓰지 않습니다. 448 을 넘으면 포화하고 작은 값은 사라지기 때문입니다.
 
 | `ZOROGRAVITY_KV_PRECISION` | 동작 |
 | --- | --- |

@@ -3,7 +3,7 @@
 # annot LOGFILE : 컴파일 · 빌드 스크립트 · 시험 오류의 앞부분과 로그 끝부분을 어노테이션 하나로
 annot() {
   local f="$1" msg
-  msg="$( { grep -E '^(error|warning: build failed)|panicked at|failed to run custom build|--- stderr|--- stdout|nvcc|fatal|^failures:|FAILED|exit code|STATUS_|not found' -A3 "$f" | cut -c1-300 | head -30; echo '--- last lines ---'; tail -25 "$f" | cut -c1-300; } | tr '\r' ' ' | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | cut -c1-3800 )"
+  msg="$( { grep -E '\[DEVICE-OP\]' "$f" | cut -c1-120 | head -20; grep -E '^(error|warning: build failed)|panicked at|failed to run custom build|--- stderr|--- stdout|nvcc|fatal|^failures:|FAILED|exit code|STATUS_|not found' -A3 "$f" | cut -c1-300 | head -30; echo '--- last lines ---'; tail -25 "$f" | cut -c1-300; } | tr '\r' ' ' | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | cut -c1-3800 )"
   echo "::error title=log::$msg"
 }
 

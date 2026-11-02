@@ -428,8 +428,14 @@ pub fn top1(logits: &[f32]) -> (u32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::accel;
     use crate::ai::verify::{det_normal, rel_err};
+    use crate::ai::weights::testing::{write_gguf, TempDir};
+    use crate::ai::weights::WeightFile;
     use crate::ai::zoro::reference::naive_attention;
+    use candle_core::quantized::gguf_file::Value;
+    use candle_core::quantized::{GgmlDType, QMatMul};
+    use candle_core::Module;
 
     fn t(data: Vec<f32>, shape: &[usize]) -> Tensor {
         Tensor::from_vec(data, shape.to_vec(), &Device::Cpu).unwrap()
@@ -437,6 +443,55 @@ mod tests {
 
     fn flat(x: &Tensor) -> Vec<f32> {
         x.flatten_all().unwrap().to_vec1::<f32>().unwrap()
+    }
+
+    /// 주의 층이 쓰는 연산을 하나씩 GPU 에서 돌려 CPU 와 비교합니다. 모델 시험이 실패할 때 어느 연산이 틀렸는지 `[DEVICE-OP]` 줄이 알려 줍니다.
+    #[test]
+    #[ignore = "GPU 가 필요합니다"]
+    fn device_basic_ops_match_the_cpu() -> Result<()> {
+        let device = accel::test_gpu();
+        let (h, n, d) = (2usize, 6usize, 8usize);
+        let q = t(det_normal(h * n * d, 31), &[h, n, d]);
+        let kt = t(det_normal(h * d * n, 32), &[h, d, n]);
+        let a = t(det_normal(n * d, 33), &[n, d]);
+        let w = t(det_normal(d * n, 34), &[d, n]);
+        let on = |x: &Tensor| x.to_device(&device);
+        let mut worst = 0f32;
+        let mut compare = |name: &str, got: Tensor, want: Tensor| -> Result<()> {
+            let err = rel_err(&got.to_device(&Device::Cpu)?, &want)?;
+            println!("[DEVICE-OP] {name}: {err:.1e}");
+            worst = worst.max(err);
+            Ok(())
+        };
+        compare("복사", on(&q)?, q.clone())?;
+        compare("스칼라 곱", (on(&q)? * 2.0)?, (&q * 2.0)?)?;
+        compare("전치", on(&q)?.transpose(1, 2)?.contiguous()?, q.transpose(1, 2)?.contiguous()?)?;
+        compare("자르기", on(&q)?.narrow(1, 2, 3)?.contiguous()?, q.narrow(1, 2, 3)?.contiguous()?)?;
+        compare("이어 붙이기", Tensor::cat(&[&on(&q)?, &on(&q)?], 2)?, Tensor::cat(&[&q, &q], 2)?)?;
+        compare("평균", on(&q)?.mean_keepdim(D::Minus1)?, q.mean_keepdim(D::Minus1)?)?;
+        compare("제곱근", on(&q)?.sqr()?.sqrt()?, q.sqr()?.sqrt()?)?;
+        compare("행렬곱 2차원", on(&a)?.matmul(&on(&w)?)?, a.matmul(&w)?)?;
+        compare("행렬곱 3차원", on(&q)?.matmul(&on(&kt)?)?, q.matmul(&kt)?)?;
+        compare("softmax", softmax_last_dim(&on(&q)?)?, softmax_last_dim(&q)?)?;
+        compare("silu", candle_nn::ops::silu(&on(&q)?)?, candle_nn::ops::silu(&q)?)?;
+        let norm = t(det_normal(d, 35), &[d]);
+        compare("rms_norm", candle_nn::ops::rms_norm(&on(&a)?, &on(&norm)?, 1e-6)?, rms_norm_composed(&a, &norm, 1e-6)?)?;
+
+        // 기준은 가중치만 푼 정확한 곱입니다. CPU 의 기본 곱은 활성값도 8비트로 줄입니다.
+        let dir = TempDir::new("attn-gpu");
+        let path = dir.0.join("q8.gguf");
+        write_gguf(&path, &[("general.architecture", Value::String("zoro".into()))], &[("w".into(), t(det_normal(16 * 64, 36), &[16, 64]), GgmlDType::Q8_0)])?;
+        let file = WeightFile::open(&path)?;
+        let (on_gpu, on_cpu) = (QMatMul::from_qtensor(file.read_qtensor("w", &device)?)?, QMatMul::from_qtensor(file.read_qtensor("w", &Device::Cpu)?)?);
+        let x = t(det_normal(n * 64, 37), &[n, 64]);
+        let row = x.narrow(0, 0, 1)?.contiguous()?;
+        compare("Q8_0 곱 여러 행", on_gpu.forward(&on(&x)?)?, on_cpu.forward_exact(&x)?)?;
+        compare("Q8_0 곱 한 행", on_gpu.forward(&on(&row)?)?, on_cpu.forward_exact(&row)?)?;
+        compare("Q8_0 정확한 곱", on_gpu.forward_exact(&on(&x)?)?, on_cpu.forward_exact(&x)?)?;
+
+        assert!(worst < 1e-3, "가장 큰 상대오차 {worst}");
+        println!("[DEVICE-CHECK] {} 기본 연산: 가장 큰 상대오차 {worst:.1e}", accel::backend_name(&device));
+        Ok(())
     }
 
     #[test]
