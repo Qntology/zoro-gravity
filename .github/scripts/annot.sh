@@ -10,6 +10,6 @@ annot() {
 # notice_lines TITLE LOGFILE REGEX : 맞는 줄을 알림 하나로 (실제로 무엇이 돌았는지의 증거)
 notice_lines() {
   local msg
-  msg="$(grep -E "$3" "$2" | cut -c1-300 | head -24 | tr '\r' ' ' | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | cut -c1-3800)"
+  msg="$(grep -E "$3" "$2" | cut -c1-300 | head -40 | tr '\r' ' ' | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}' | cut -c1-3800)"
   echo "::notice title=$1::${msg:-<맞는 줄 없음>}"
 }

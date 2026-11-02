@@ -27,7 +27,7 @@
 | 문서 크롭 (SigLIP2) | **구현** (`ai::siglip2`, 직접 작성). 패치 경쟁(NMS)과 크롭 NMS 포함. 합성 서식으로 평가했고 **실제 스캔으로는 학습 · 평가 전**. [docs/document-crop.md](docs/document-crop.md) |
 | 문서 묶음 읽기 · 항목 추출 | **구현** (`ai::document`, `extract`). 픽셀 계산은 병렬, 모델은 단계마다 한 번만 올립니다. 서류 종류 · 항목 · 서명을 뽑고, 글자 신뢰도가 낮은 값은 사람에게 넘깁니다. 합성 서류로만 평가했습니다 |
 | 모델 양자화 (GGUF Q4 · Q8, 비전 BF16) | 구현 · gocr · zoro 모두 q8 선택. [docs/model-quantization.md](docs/model-quantization.md) |
-| 장치 선택 · 커널 자가 검증 (CUDA · ROCm · Metal · Vulkan · CPU) | 구현 · 실측은 아래 |
+| 장치 선택 · 커널 자가 검증 (CUDA · ROCm · Metal · Vulkan · CPU) | 구현 · 실측은 아래. Metal 은 Apple Silicon 전용이고 합성 모델로만 확인했습니다 |
 | CI (Linux · macOS · Windows) | 구현 (`cross-verify`). 푸시마다 시험 전체와 장치 시험을 돌립니다. [docs/ci.md](docs/ci.md) |
 | HWP 문서 생성 (rhwp) | 구현 (`tools/hwp-builder`, 내부결재용 · 교부용, 금지어 · 확정 수치 검사). 심사 흐름과 앱 편집기에는 아직 연결 안 됨 |
 | 모델 다운로드 · 삭제 (AppData, 진행률 표시) | 구현 (`tools/model-settings`, 앱 설정 화면) |
@@ -58,7 +58,7 @@ run\windows\rocm.bat read_page 이미지.jpg
 - 공통으로 이 저장소 옆에 `candle-rocm-vulkan` 이 있어야 하고, 모델은 앱 데이터 폴더에 받아 두어야 합니다 (아래 "모델 폴더와 다운로드").
 - **CUDA** 는 CUDA Toolkit(`nvcc`)이, **ROCm** 은 HIP SDK 가, **Vulkan** 은 GPU 드라이버가 있어야 합니다. **Metal** 은 Apple Silicon 맥에서만 쓰고 따로 설치할 것이 없습니다. 맥의 Vulkan 은 `brew install vulkan-loader molten-vk` 로 설치합니다.
 - 맥의 `cuda.command` · `rocm.command` 는 안내만 하고 끝납니다. macOS 용 ROCm 은 없고 CUDA 는 10.2 를 끝으로 지원이 끊겼습니다.
-- 이 PC 에서 돌려 본 것은 Windows 의 Vulkan · ROCm 입니다. CUDA, 리눅스, 맥은 **실행해 보지 않았습니다**. 특히 맥의 Vulkan(MoltenVK)은 이 프로젝트에서 한 번도 측정한 적이 없습니다.
+- 실제 모델로 돌려 본 것은 이 PC 의 Windows Vulkan · ROCm 뿐입니다. 리눅스 · 맥(Metal · MoltenVK)은 CI 에서 합성 모델까지만 돌렸고 CUDA 는 빌드까지만 확인했습니다 ([docs/ci.md](docs/ci.md)). **실제 모델의 수치는 없습니다.**
 
 ## 모델 폴더와 다운로드
 

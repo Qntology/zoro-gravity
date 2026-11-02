@@ -80,8 +80,23 @@ ZOROGRAVITY_DEVICE=metal target/release/examples/decide_probe
 - **dtype**: Vulkan · CUDA 와 같이 F32 입니다. 비전 타워의 BF16 가중치는 올릴 때 F32 로 풉니다.
 - **메모리**: 통합 메모리라서 포크는 `recommendedMaxWorkingSetSize − currentAllocatedSize` 를 여유로 돌려줍니다. Metal 은 다 쓴 작업 버퍼를 동기화할 때 돌려주므로 `Residency` 는 올리기 전에 동기화합니다. 그러지 않으면 올리는 동안 돌아온 버퍼 때문에 여유가 덜 줄어든 것처럼 보여서 `WeightsLeftOnHost` 로 잘못 거부합니다. `device_loading_is_measured_and_releasing_returns_the_memory` 가 이 경우를 재현합니다.
 - **장치가 없는 맥**: GPU 없는 가상 맥에서 포크의 `Device::new_metal` 은 오류 대신 패닉합니다. `open_metal` 이 이를 장치 없음으로 바꿔서 `auto` 는 다음 후보로 넘어갑니다.
+- **양자화 곱**: 기본 곱은 가중치만 풀고 활성값은 줄이지 않습니다. 정확한 곱과 1.6e-4 안에서 같아서 `forward_exact` 를 쓰지 않습니다.
 - **KV FP8**: 포크에 Metal 용 TurboQuant 커널이 없어서 같은 형식을 CPU 코덱으로 압축합니다 (3.7절). 값은 같고 느립니다. 기본 `auto` 는 메모리가 모자랄 때만 압축합니다.
 - **자기 추측**: 재 본 적이 없어서 끕니다 (`speculation_for`). `ZOROGRAVITY_ZORO_SPECULATION` 으로 켤 수 있습니다.
+
+**CI 측정** (`mac-metal`. 가상 M1, 메모리 7 GB, 합성 모델). CPU · 스칼라 기준과의 상대오차입니다.
+
+| 항목 | 상대오차 |
+| --- | --- |
+| 행렬곱 · softmax · silu · rms_norm | 6.4e-8 이하 |
+| Q8_0 기본 곱 (여러 행 · 한 행) | 1.6e-4 · 1.1e-7 |
+| gocr 비전 · 언어 | 3.0e-7 · 2.6e-7 |
+| KV FP8 압축 행 어텐션 | 5.1e-7 |
+| zoro 순전파 · 이어 읽기 · 글쓰기, siglip2 타워 | 시험 기준 안 (1e-3, q8 은 3%, 글쓰기 토큰은 CPU 와 같음) |
+
+128 MiB 묶음 두 개를 올리고 내린 뒤 여유 메모리는 4777 MB 로 그대로 돌아왔습니다.
+
+**미검증**: 실제 모델과 실제 맥 GPU 로는 돌려 보지 않았습니다. 판단 · 읽기 수치와 속도는 없고, 자동화 기준 0.95 도 Metal 에서 다시 재야 합니다.
 
 ## 3. 실측 (RX 6600)
 
