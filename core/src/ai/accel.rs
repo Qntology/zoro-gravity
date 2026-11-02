@@ -55,7 +55,7 @@ pub fn select_device_with(pref: DevicePref) -> Result<Device> {
             anyhow!("ROCm 장치를 열 수 없습니다. rocm 기능으로 빌드했는지, HIP SDK 와 드라이버가 있는지 확인하세요 (docs/gpu-backends.md)")
         }),
         DevicePref::Metal => open_metal()?.ok_or_else(|| {
-            anyhow!("Metal 장치를 열 수 없습니다. metal 기능으로 빌드했는지, Metal 을 지원하는 맥인지 확인하세요 (docs/gpu-backends.md)")
+            anyhow!("Metal 장치를 쓸 수 없습니다. metal 기능으로 빌드했는지, Apple Silicon 맥인지 확인하세요 (docs/gpu-backends.md)")
         }),
         DevicePref::Vulkan => open_vulkan()?
             .ok_or_else(|| anyhow!("Vulkan 장치가 없습니다. Vulkan 로더(vulkan-1.dll, libvulkan)와 GPU 드라이버를 확인하세요")),
@@ -174,15 +174,45 @@ fn open_rocm() -> Result<Option<Device>> {
     Ok(None)
 }
 
+/// [`metal_kernels_error`] 의 허용 오차
+#[cfg(feature = "metal")]
+const METAL_KERNEL_TOL: f32 = 1e-3;
+
+/// Metal 의 행렬곱 · softmax · silu 를 CPU 와 비교합니다.
+///
+/// 포크의 Metal 커널은 Apple GPU 를 전제로 합니다. Intel 맥에서는 장치가 열리고 복사 · 평균도 맞지만 행렬곱, softmax, Q8_0 곱은
+/// 오류 없이 틀린 값을 냅니다 (macos-15-intel 측정, docs/gpu-backends.md 2.2절). 모델이 조용히 틀리지 않도록 쓰기 전에 봅니다.
+#[cfg(feature = "metal")]
+fn metal_kernels_error(device: &Device) -> Result<f32> {
+    use candle_core::Tensor;
+    use candle_nn::ops::{silu, softmax_last_dim};
+
+    use super::verify::{det_normal, rel_err};
+
+    const N: usize = 32;
+    let cpu = Device::Cpu;
+    let a = Tensor::from_vec(det_normal(N * N, 41), (N, N), &cpu)?;
+    let b = Tensor::from_vec(det_normal(N * N, 42), (N, N), &cpu)?;
+    let (x, y) = (a.to_device(device)?, b.to_device(device)?);
+    let errors = [
+        rel_err(&x.matmul(&y)?.to_device(&cpu)?, &a.matmul(&b)?)?,
+        rel_err(&softmax_last_dim(&x)?.to_device(&cpu)?, &softmax_last_dim(&a)?)?,
+        rel_err(&silu(&x)?.to_device(&cpu)?, &silu(&a)?)?,
+    ];
+    Ok(errors.into_iter().fold(0.0, f32::max))
+}
+
+/// 쓸 수 없는 Metal 은 없는 장치로 봅니다. `auto` 는 다음 후보로 넘어가고, `metal` 을 직접 골랐으면 오류입니다.
 /// 포크의 `Device::new_metal` 은 장치가 없으면 오류를 돌려주지 않고 패닉합니다 (GPU 없는 가상 맥).
-/// 그 경우를 장치가 없는 것으로 보아서 `auto` 가 다음 후보로 넘어가게 합니다.
 #[cfg(feature = "metal")]
 fn open_metal() -> Result<Option<Device>> {
     let id = gpu_override()?.unwrap_or(0);
-    match std::panic::catch_unwind(|| Device::new_metal(id)) {
-        Ok(device) => Ok(Some(device?)),
-        Err(_) => Ok(None),
-    }
+    let device = match std::panic::catch_unwind(|| Device::new_metal(id)) {
+        Ok(device) => device?,
+        Err(_) => return Ok(None),
+    };
+    let usable = super::verify::trusted(&device, "metal_kernels", METAL_KERNEL_TOL, || metal_kernels_error(&device));
+    Ok(usable.then_some(device))
 }
 
 #[cfg(not(feature = "metal"))]
@@ -305,6 +335,16 @@ mod tests {
     fn auto_never_fails_even_without_gpu() {
         // GPU 가 없는 CI 에서도 auto 는 CPU 로 떨어져야 합니다.
         assert!(select_device_with(DevicePref::Auto).is_ok());
+    }
+
+    /// Apple GPU 가 아닌 맥에서 CI 가 돌립니다. Metal 이 열려도 쓰지 않고 CPU 로 넘어가야 합니다.
+    #[cfg(feature = "metal")]
+    #[test]
+    #[ignore = "Apple GPU 가 아닌 맥이 필요합니다"]
+    fn metal_is_refused_where_its_kernels_are_wrong() {
+        assert!(matches!(select_device_with(DevicePref::Auto).unwrap(), Device::Cpu));
+        assert!(select_device_with(DevicePref::Metal).is_err());
+        println!("[DEVICE-CHECK] Apple GPU 가 아닌 맥: Metal 을 쓰지 않고 CPU 로 넘어감");
     }
 
     #[test]

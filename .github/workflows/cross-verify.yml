@@ -2,7 +2,7 @@
 #
 # GitHub 호스팅 러너에는 AMD · NVIDIA GPU 가 없어서 실제로 돌릴 수 있는 것만 돌립니다.
 #   mac (macos-15, 가상 M1) : cpu · metal · vulkan(MoltenVK). 호스팅 러너의 Metal 은 진짜 Metal 장치입니다
-#   mac-intel              : Intel 맥. arm64 러너가 배정되지 않아도 Metal 코드를 빌드하고 시험합니다
+#   mac-intel              : Intel 맥. Metal 코드를 빌드해 시험하고, 커널이 틀리는 이 GPU 의 Metal 을 쓰지 않는지 확인합니다
 #   cpu                    : 빌드 + --ignored 가 아닌 시험 전체
 #   vulkan (Linux)         : lavapipe(CPU 위의 소프트웨어 Vulkan)로 시험 전체 + 장치 시험
 #   vulkan (Windows)       : 빌드만. 소프트웨어 Vulkan 드라이버가 없어서 시험은 돌리지 않습니다
@@ -68,8 +68,9 @@ jobs:
             dict(name="mac-cpu", os="macos-15", kind="run", features=""),
             dict(name="mac-metal", os="macos-15", kind="run", features="metal", device="metal"),
             dict(name="mac-vulkan", os="macos-15", kind="run", features="vulkan", device="vulkan"),
-            # arm64 러너는 자주 모자라서 배정되지 않을 때가 있습니다. Intel 러너는 그때도 Metal 코드의 컴파일과 시험 전체를 확인합니다.
-            dict(name="mac-intel", os="macos-15-intel", kind="run", features="metal", device="metal"),
+            # arm64 러너는 모자라서 배정되지 않을 때가 있습니다. Intel 러너는 그때도 Metal 코드를 빌드하고 시험 전체를 돌립니다.
+            # Intel 의 Metal 은 열리지만 커널이 틀린 값을 냅니다. 그 Metal 을 쓰지 않는 것까지 확인합니다.
+            dict(name="mac-intel", os="macos-15-intel", kind="run", features="metal", refuses_metal=True),
             dict(name="linux-cpu", os="ubuntu-latest", kind="run", features=""),
             dict(name="linux-vulkan", os="ubuntu-latest", kind="run", features="vulkan", device="vulkan"),
             dict(name="linux-cuda", os="ubuntu-latest", kind="cuda-check", features="cuda"),
@@ -236,6 +237,15 @@ jobs:
             echo "::error title=device::장치 시험 ${DEVICE_CHECKS}개 중 ${n}개만 돌았습니다. 건너뛴 시험은 통과가 아닙니다"; exit 1
           fi
           notice_lines "device (${{ matrix.device }})" "$RUNNER_TEMP/device.log" '\[DEVICE-CHECK\]|\[DEVICE-OP\]|\[ZOROGRAVITY-ACCEL\] .*(통과|❌)'
+      - name: 커널이 틀리는 Metal 을 쓰지 않는지
+        if: matrix.refuses_metal
+        working-directory: zoro-gravity
+        run: |
+          . .github/scripts/annot.sh; set +e
+          cargo test $TEST_ARGS --lib -- metal_is_refused --ignored --nocapture --test-threads 1 2>&1 | tee "$RUNNER_TEMP/refuse.log" | tail -5
+          rc=${PIPESTATUS[0]}; [ "$rc" = 0 ] || { annot "$RUNNER_TEMP/refuse.log"; exit 1; }
+          grep -q '\[DEVICE-CHECK\]' "$RUNNER_TEMP/refuse.log" || { echo "::error title=device::거부 시험이 돌지 않았습니다"; exit 1; }
+          notice_lines "metal refused" "$RUNNER_TEMP/refuse.log" '\[DEVICE-CHECK\]|\[ZOROGRAVITY-ACCEL\]'
       - name: 앱 빌드
         if: matrix.kind == 'run' || matrix.kind == 'build'
         working-directory: zoro-gravity
@@ -268,7 +278,7 @@ jobs:
         if: always()
         run: |
           case "${{ matrix.kind }}" in
-            run)        msg="빌드 + 시험 전체 + 앱 빌드${{ matrix.device && format(' + {0} 장치 시험', matrix.device) || '' }}. 돌리지 않음: 실제 모델 시험, CUDA · ROCm 실행" ;;
+            run)        msg="빌드 + 시험 전체 + 앱 빌드${{ matrix.device && format(' + {0} 장치 시험', matrix.device) || '' }}${{ matrix.refuses_metal && ' + 틀린 Metal 거부' || '' }}. 돌리지 않음: 실제 모델 시험, CUDA · ROCm 실행" ;;
             build)      msg="빌드 + 앱 빌드만. 돌리지 않음: 시험 (이 러너에 소프트웨어 Vulkan 드라이버가 없습니다)" ;;
             check)      msg="타입 검사만 (cargo check). 돌리지 않음: 링크, 모든 시험 (GPU · SDK 없음)" ;;
             cuda-check) msg="타입 검사 + 실제 nvcc 커널 빌드 (CUDA ${{ matrix.cuda || 'apt' }}, sm_${{ matrix.cuda_cap || '80' }}). 돌리지 않음: 모든 시험, GPU 위의 커널 (NVIDIA GPU 없음)" ;;

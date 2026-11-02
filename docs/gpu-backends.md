@@ -16,7 +16,7 @@ AI 엔진은 candle 입니다. AMD GPU 연동은 [Qntology/candle-rocm-vulkan](h
 | **Vulkan** (기본) | `vulkan` | 드라이버의 `vulkan-1.dll`. SDK 불필요 | ✅ 동작 확인 |
 | **ROCm/HIP** | `rocm` | HIP SDK 7.2 (`hipcc`, `amdhip64`, `rocblas`), **MSVC 14.44 툴셋** | ✅ 동작 확인 (2절) |
 | **CUDA** | `cuda` | NVIDIA 드라이버, CUDA Toolkit (`nvcc`), Windows 는 MSVC | ⚠️ 빌드 · 실행 미검증 (2.1절) |
-| **Metal** | `metal` | macOS. 따로 설치할 것 없음 | 해당 없음 (2.2절) |
+| **Metal** | `metal` | Apple Silicon 맥. 따로 설치할 것 없음 | 해당 없음 (2.2절) |
 
 `ZOROGRAVITY_DEVICE` 로 고릅니다. `auto`(기본)는 CUDA → ROCm → Metal → Vulkan → CPU 순서로 처음 열리는 장치를 씁니다. 맥의 Vulkan(MoltenVK)은 Metal 위에서 도는 변환 층이라서 Metal 을 먼저 봅니다.
 
@@ -76,6 +76,7 @@ ZOROGRAVITY_DEVICE=metal target/release/examples/decide_probe
 `run/macos/metal.command` 가 같은 일을 하고, 맥의 앱(`run/macos/app.command`)도 Metal 로 돕니다.
 
 - 포크의 Metal 백엔드를 그대로 씁니다. `candle-metal-kernels` 는 logis-center 에서 검증한 0.11.0 으로 `Cargo.lock` 에 고정했습니다.
+- **Apple Silicon 전용입니다.** `candle-metal-kernels` 의 행렬곱은 `simdgroup_matrix` 와 SIMD 폭 32 를 전제로 합니다. `macos-15-intel` 러너(Apple Paravirtualized Graphics, Metal 2)에서는 복사 · 전치 · 평균은 맞지만 행렬곱, softmax, silu, rms_norm, Q8_0 곱이 **오류 없이 틀린 값**을 냈습니다 (상대오차 0.9 이상). 그래서 `open_metal` 이 장치를 열 때 행렬곱 · softmax · silu 를 CPU 와 비교하고, 틀리면 Metal 을 없는 장치로 봅니다. `auto` 는 다음 후보로 넘어가고 `metal` 을 직접 고르면 오류입니다. 실제 Intel 맥의 AMD GPU 로는 재 보지 않았습니다.
 - **dtype**: Vulkan · CUDA 와 같이 F32 입니다. 비전 타워의 BF16 가중치는 올릴 때 F32 로 풉니다.
 - **메모리**: 통합 메모리라서 포크는 `recommendedMaxWorkingSetSize − currentAllocatedSize` 를 여유로 돌려줍니다. Metal 은 다 쓴 작업 버퍼를 동기화할 때 돌려주므로 `Residency` 는 올리기 전에 동기화합니다. 그러지 않으면 올리는 동안 돌아온 버퍼 때문에 여유가 덜 줄어든 것처럼 보여서 `WeightsLeftOnHost` 로 잘못 거부합니다. `device_loading_is_measured_and_releasing_returns_the_memory` 가 이 경우를 재현합니다.
 - **장치가 없는 맥**: GPU 없는 가상 맥에서 포크의 `Device::new_metal` 은 오류 대신 패닉합니다. `open_metal` 이 이를 장치 없음으로 바꿔서 `auto` 는 다음 후보로 넘어갑니다.

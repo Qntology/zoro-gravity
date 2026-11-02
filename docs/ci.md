@@ -11,6 +11,7 @@
 | `mac-cpu` | macos-15 | 빌드, 시험 전체, 앱 빌드 | |
 | `mac-metal` | macos-15 | 위와 같음 + **실제 Metal 장치**에서 장치 시험 | 실제 모델 |
 | `mac-vulkan` | macos-15 | 위와 같음 + MoltenVK 에서 장치 시험 | 실제 모델 |
+| `mac-intel` | macos-15-intel | Metal 코드 빌드, 시험 전체, 앱 빌드, 커널이 틀리는 Metal 을 쓰지 않는지 | Metal 위의 계산 |
 | `linux-cpu` | ubuntu-latest | 빌드, 시험 전체, 앱 빌드 | |
 | `linux-vulkan` | ubuntu-latest | 위와 같음 + lavapipe(CPU 위의 소프트웨어 Vulkan)에서 장치 시험 | 실제 GPU |
 | `windows-cpu` | windows-latest | 빌드, 시험 전체, 앱 빌드 | |
@@ -76,4 +77,8 @@ ZOROGRAVITY_DEVICE=metal cargo test -p zorogravity-core --lib --no-default-featu
 - `scope ...`: 그 작업이 확인한 범위
 - `env ...`: 러너, 컴파일러, SDK, 빌드 입력
 
-`The job was not acquired by Runner of type hosted` 는 코드와 무관한 러너 배정 실패입니다. 다시 돌리면 됩니다.
+## macOS arm64 러너
+
+GitHub 의 무료 arm64 맥 러너는 모자랄 때가 많습니다. 20분쯤 기다린 뒤 `The job was not acquired by Runner of type hosted` 로 끝나면 코드와 무관한 러너 배정 실패입니다. `macos-26` 도 같고, 같은 시간대의 logis-center 도 같은 오류가 납니다. Actions 화면의 **Re-run failed jobs** 로 다시 돌리면 됩니다.
+
+Intel 러너(`mac-intel`)는 이 영향을 받지 않아서 macOS 빌드와 시험은 그때도 확인됩니다. 다만 **Metal 위의 계산은 arm64 러너에서만 확인됩니다.** `mac-metal` 이 돌지 않은 실행은 Metal 을 검증하지 않은 것입니다.

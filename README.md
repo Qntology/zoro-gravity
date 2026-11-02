@@ -46,7 +46,7 @@
 | Linux | `run/linux/cuda.sh` | `run/linux/rocm.sh` | 지원 안 됨 | `run/linux/vulkan.sh` |
 | macOS | 지원 안 됨 | 지원 안 됨 | `run/macos/metal.command` | `run/macos/vulkan.command` |
 
-앱은 `run\windows\app.bat` · `run/linux/app.sh` · `run/macos/app.command` 로 실행합니다. 맥의 앱은 Metal 로 돕니다. AMD GPU 는 `run\windows\app-rocm.bat` 를 씁니다. 스캐너 입력은 `ZOROGRAVITY_SCANNER_DIR` 폴더(기본 `%LOCALAPPDATA%\zorogravity\scanner`)의 이미지로 대신합니다. `ZOROGRAVITY_ENGINE=rules` 면 모델 없이 규칙만으로 돕니다. `ZOROGRAVITY_TRACE=<파일>` 을 주면 모델이 언제 무엇을 했는지 남깁니다 (`core/src/ai/trace.rs`).
+앱은 `run\windows\app.bat` · `run/linux/app.sh` · `run/macos/app.command` 로 실행합니다. 맥의 앱은 Apple Silicon 에서 Metal 로 돕니다. Intel 맥은 Metal 커널이 틀린 값을 내서 쓰지 않고 CPU 로 돕니다. AMD GPU 는 `run\windows\app-rocm.bat` 를 씁니다. 스캐너 입력은 `ZOROGRAVITY_SCANNER_DIR` 폴더(기본 `%LOCALAPPDATA%\zorogravity\scanner`)의 이미지로 대신합니다. `ZOROGRAVITY_ENGINE=rules` 면 모델 없이 규칙만으로 돕니다. `ZOROGRAVITY_TRACE=<파일>` 을 주면 모델이 언제 무엇을 했는지 남깁니다 (`core/src/ai/trace.rs`).
 
 ```bat
 :: 기본은 판단 경로 전체를 도는 decide_probe 입니다. 예제 이름과 인자를 주면 그 예제를 돌립니다.
@@ -56,7 +56,7 @@ run\windows\rocm.bat read_page 이미지.jpg
 
 - 결과물은 `target-cuda` · `target-rocm` · `target-metal` · `target` 의 `release\examples` 에 생깁니다.
 - 공통으로 이 저장소 옆에 `candle-rocm-vulkan` 이 있어야 하고, 모델은 앱 데이터 폴더에 받아 두어야 합니다 (아래 "모델 폴더와 다운로드").
-- **CUDA** 는 CUDA Toolkit(`nvcc`)이, **ROCm** 은 HIP SDK 가, **Vulkan** 은 GPU 드라이버가 있어야 합니다. **Metal** 은 따로 설치할 것이 없습니다. 맥의 Vulkan 은 `brew install vulkan-loader molten-vk` 로 설치합니다.
+- **CUDA** 는 CUDA Toolkit(`nvcc`)이, **ROCm** 은 HIP SDK 가, **Vulkan** 은 GPU 드라이버가 있어야 합니다. **Metal** 은 Apple Silicon 맥에서만 쓰고 따로 설치할 것이 없습니다. 맥의 Vulkan 은 `brew install vulkan-loader molten-vk` 로 설치합니다.
 - 맥의 `cuda.command` · `rocm.command` 는 안내만 하고 끝납니다. macOS 용 ROCm 은 없고 CUDA 는 10.2 를 끝으로 지원이 끊겼습니다.
 - 이 PC 에서 돌려 본 것은 Windows 의 Vulkan · ROCm 입니다. CUDA, 리눅스, 맥은 **실행해 보지 않았습니다**. 특히 맥의 Vulkan(MoltenVK)은 이 프로젝트에서 한 번도 측정한 적이 없습니다.
 
