@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # 백엔드 하나로 zorogravity-core 예제를 빌드해서 실행합니다. run/linux 와 run/macos 의 스크립트가 부릅니다.
 #
-#   bash scripts/run-unix.sh <cuda|rocm|vulkan> [예제] [예제 인자...]
+#   bash scripts/run-unix.sh <cuda|rocm|metal|vulkan> [예제] [예제 인자...]
 #
 # 기본 예제는 판단 경로 전체를 도는 decide_probe 이고 모델 폴더(앱 데이터)에 zoro 가 있어야 합니다.
 # 백엔드마다 빌드 폴더를 따로 써서 캐시가 섞이지 않습니다 (vulkan 은 기본 기능이라 target 을 함께 씁니다).
@@ -40,6 +40,10 @@ case "$BACKEND" in
             fail "Vulkan 로더가 없습니다. brew install vulkan-loader molten-vk 로 설치하세요."
         fi
         ;;
+    metal)
+        TARGET=target-metal
+        [ "$(uname -s)" = Darwin ] || fail "Metal 은 macOS 에서만 쓸 수 있습니다."
+        ;;
     rocm)
         TARGET=target-rocm
         ROCM_PATH="$(find_rocm)" || fail "hipcc 가 없습니다. ROCm 을 설치하거나 ROCM_PATH 를 지정하세요."
@@ -56,7 +60,7 @@ case "$BACKEND" in
         command -v nvcc > /dev/null || fail "nvcc 가 없습니다. CUDA Toolkit 을 설치하거나 CUDA_PATH 를 지정하세요."
         ;;
     *)
-        fail "모르는 백엔드입니다: $BACKEND (cuda, rocm, vulkan)"
+        fail "모르는 백엔드입니다: $BACKEND (cuda, rocm, metal, vulkan)"
         ;;
 esac
 

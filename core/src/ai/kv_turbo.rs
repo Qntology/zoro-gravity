@@ -2,6 +2,7 @@
 //!
 //! 기본 형식은 벡터별 스케일 FP8(e4m3, 회전 없음)입니다. 벡터 하나가 `head_dim` + 8 바이트라서 F32 의 약 1/4 입니다.
 //! GPU(CUDA · ROCm · Vulkan)에서 포크의 TurboQuant 커널로 압축 · 복원하고, CPU 는 원래대로 압축하지 않습니다.
+//! Metal 에는 이 커널이 없어서 같은 형식을 포크의 CPU 코덱으로 압축 · 복원합니다 (형식은 같고 느립니다).
 //!
 //! - `ZOROGRAVITY_KV_PRECISION=auto` (기본): 원본 KV 가 장치 여유 메모리에 들어가면 원본(F32), 아니면 FP8
 //! - `exact`: 항상 원본, `compressed`: GPU 에서 항상 FP8
@@ -379,6 +380,19 @@ mod tests {
         assert_eq!(rows.dtype(), candle_core::DType::U32);
         assert_eq!(rows.dims()[..2], [3, 5]);
         assert!(rows.elem_count() * 4 * 3 < x.elem_count() * 4, "F32 의 1/3 보다 작아야 합니다");
+        Ok(())
+    }
+
+    /// 자가 검증이 쓰는 비교를 GPU 에서 직접 돌립니다. 자가 검증과 달리 틀리면 조용히 원본으로 돌아가지 않고 실패합니다.
+    #[test]
+    #[ignore = "GPU 가 필요합니다"]
+    fn device_fp8_matches_the_cpu_codec() -> Result<()> {
+        let device = accel::test_gpu();
+        let (quant, dequant) = codec_probe(&device, 64)?;
+        assert!(quant <= QUANT_TOL && dequant <= DEQUANT_TOL, "압축 {quant}, 복원 {dequant}");
+        let attn = fused_probe(&device, 4, 2, 64)?;
+        assert!(attn <= ATTN_TOL, "압축 행 어텐션 {attn}");
+        println!("[DEVICE-CHECK] {} KV FP8: 압축 {quant:.1e}, 복원 {dequant:.1e}, 압축 행 어텐션 {attn:.1e}", accel::backend_name(&device));
         Ok(())
     }
 

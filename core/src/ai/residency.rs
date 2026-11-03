@@ -572,6 +572,10 @@ impl Residency {
         }
         // 올리기 전에 장치에 실제로 자리가 있는지 봅니다. 다른 프로세스가 같은 GPU 를 쓰고 있으면 예산을 잡은 때와 여유가 달라졌을 수 있습니다.
         let on_device = estimate_device_heap_bytes(spec.file_of(group), group, &self.device)?;
+        // Metal 은 다 쓴 작업 버퍼를 동기화할 때 돌려줍니다. 먼저 돌려받아야 올리기 전후의 차이가 이 묶음의 크기가 됩니다.
+        if self.device.is_metal() {
+            let _ = self.device.synchronize_all();
+        }
         let (free_before, buffers_before) = (self.free_bytes(), self.tensor_buffer_bytes());
         if !allow_host_weights() {
             check_headroom(group, on_device, free_before, headroom_bytes())?;
@@ -798,6 +802,41 @@ mod tests {
 
     fn phase(name: &str, groups: &[Group]) -> Phase {
         Phase::new(name, groups.iter().copied())
+    }
+
+    /// `weights_missing_from_device` 가 보는 크기(64 MB 이상)의 묶음을 GPU 에 올리고 내립니다.
+    /// 앞 계산의 작업 버퍼가 남아 있어도 올리기가 거부되면 안 되고, 내린 메모리는 돌아와야 합니다.
+    #[test]
+    #[ignore = "GPU 가 필요합니다"]
+    fn device_loading_is_measured_and_releasing_returns_the_memory() -> Result<()> {
+        let device = accel::test_gpu();
+        let dir = TempDir::new("res-gpu");
+        let tensors: Vec<(String, Tensor, GgmlDType)> = (0..2)
+            .map(|i| (format!("blk.{i}.ffn_up.weight"), Tensor::zeros((8192, 4096), DType::F32, &Device::Cpu).unwrap(), GgmlDType::F32))
+            .collect();
+        let path = dir.0.join("big.gguf");
+        write_gguf(&path, &[("general.architecture", Value::String("zoro".into()))], &tensors)?;
+        let file = Arc::new(WeightFile::open(&path)?);
+        let spec = ModelSpec::new(ModelId::Zoro, Arc::clone(&file));
+        let mut res = Residency::new(device.clone(), Budget::unlimited());
+        res.release_all()?;
+        let start = res.free_bytes();
+
+        let front = res.enter(&spec, &phase("앞", &[Group::blocks(0..1)]))?;
+        // 가중치와 같은 크기의 결과를 읽고 버립니다. Metal 은 이 버퍼를 다음 동기화 때까지 쥐고 있습니다.
+        front[0].dense("blk.0.ffn_up.weight")?.sqr()?.sum_all()?.to_scalar::<f32>()?;
+        drop(front);
+        drop(res.enter(&spec, &phase("앞뒤", &[Group::blocks(0..1), Group::blocks(1..2)]))?);
+        assert_eq!(res.resident_groups(), vec![Group::blocks(0..1), Group::blocks(1..2)]);
+        res.release_all()?;
+
+        // Vulkan 의 일반 텐서는 호스트 메모리에 있어서 장치 여유로는 볼 수 없습니다.
+        if estimate_device_heap_bytes(&file, Group::blocks(0..1), &device)? > 0 {
+            let (before, after) = (start.expect("장치 여유"), res.free_bytes().expect("장치 여유"));
+            assert!(after + (16 << 20) >= before, "내린 메모리가 돌아오지 않았습니다: {} → {} MB", before >> 20, after >> 20);
+        }
+        println!("[DEVICE-CHECK] {} 상주 관리: 128 MiB 묶음 2개를 올리고 내림, 여유 {:?} → {:?} MB", accel::backend_name(&device), start.map(|b| b >> 20), res.free_bytes().map(|b| b >> 20));
+        Ok(())
     }
 
     #[test]

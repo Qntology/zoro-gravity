@@ -1,4 +1,4 @@
-# GPU 백엔드 (Vulkan · ROCm/HIP · CUDA)
+# GPU 백엔드 (Vulkan · ROCm/HIP · CUDA · Metal)
 
 AI 엔진은 candle 입니다. AMD GPU 연동은 [Qntology/candle-rocm-vulkan](https://github.com/Qntology/candle-rocm-vulkan) 포크(candle 0.11.0 기반)를 씁니다.
 포크는 `Cargo.toml` 의 `[patch.crates-io]` 로 `candle-core` · `candle-nn` 을 바꾸고, `candle-rocm` 크레이트로 ROCm 을 붙입니다.
@@ -15,12 +15,13 @@ AI 엔진은 candle 입니다. AMD GPU 연동은 [Qntology/candle-rocm-vulkan](h
 | --- | --- | --- | --- |
 | **Vulkan** (기본) | `vulkan` | 드라이버의 `vulkan-1.dll`. SDK 불필요 | ✅ 동작 확인 |
 | **ROCm/HIP** | `rocm` | HIP SDK 7.2 (`hipcc`, `amdhip64`, `rocblas`), **MSVC 14.44 툴셋** | ✅ 동작 확인 (2절) |
-| **CUDA** | `cuda` | NVIDIA 드라이버, CUDA Toolkit (`nvcc`), Windows 는 MSVC | ⚠️ 빌드 · 실행 미검증 (2.1절) |
+| **CUDA** | `cuda` | NVIDIA 드라이버, CUDA Toolkit (`nvcc`), Windows 는 MSVC | ⚠️ 실행 미검증. 빌드는 CI 에서 확인 (2.1절) |
+| **Metal** | `metal` | Apple Silicon 맥. 따로 설치할 것 없음 | 해당 없음 (2.2절) |
 
-`ZOROGRAVITY_DEVICE` 로 고릅니다. `auto`(기본)는 CUDA → ROCm → Vulkan → CPU 순서로 처음 열리는 장치를 씁니다.
+`ZOROGRAVITY_DEVICE` 로 고릅니다. `auto`(기본)는 CUDA → ROCm → Metal → Vulkan → CPU 순서로 처음 열리는 장치를 씁니다. 맥의 Vulkan(MoltenVK)은 Metal 위에서 도는 변환 층이라서 Metal 을 먼저 봅니다.
 
 ```bat
-set ZOROGRAVITY_DEVICE=vulkan   :: auto | cuda | rocm | vulkan | cpu
+set ZOROGRAVITY_DEVICE=vulkan   :: auto | cuda | rocm | metal | vulkan | cpu
 ```
 
 빌드부터 실행까지 한 번에 하려면 `run/` 의 스크립트를 쓰세요 ([README](../README.md) 의 "실행 스크립트").
@@ -63,7 +64,39 @@ target\debug\examples\qmatmul_check.exe %LOCALAPPDATA%\zorogravity\models\zoro
 - `scripts\cuda-env.bat` 은 `vcvars64.bat` 을 호출하고 `CUDA_PATH` 의 `bin` 을 `PATH` 에 넣습니다. CUDA 13 헤더를 위해 `NVCC_PREPEND_FLAGS=-Xcompiler /Zc:preprocessor` 를 줍니다 (logis-center 와 같습니다).
 - 가중치 dtype 은 Vulkan 과 같이 F32 입니다. 비전 타워가 ROCm 의 BF16 보다 VRAM 을 두 배 씁니다.
 - 양자화 곱은 `forward_exact` 를 씁니다. CUDA 의 기본 곱은 활성값을 8비트로 줄여서 ROCm · Vulkan 과 확률이 달라지기 때문입니다.
-- **미검증**: 이 PC 에는 NVIDIA GPU 와 `nvcc` 가 없어서 CUDA 기능으로 빌드하지 못했습니다. 포크의 CUDA 경로를 쓰도록 연결만 했고, 판단 · 읽기 수치는 없습니다. 자가 검증(`verify`)이 장치 커널과 CPU 결과를 비교합니다. 자동화 기준 0.95 도 CUDA 에서 다시 재야 합니다.
+- **미검증**: 이 PC 에는 NVIDIA GPU 와 `nvcc` 가 없습니다. CI 의 `linux-cuda` · `windows-cuda` 가 실제 `nvcc` 로 커널까지 빌드하고 타입 검사를 통과하지만 ([ci.md](ci.md)) 실행은 해 보지 않았습니다. 판단 · 읽기 수치는 없습니다. 자가 검증(`verify`)이 장치 커널과 CPU 결과를 비교합니다. 자동화 기준 0.95 도 CUDA 에서 다시 재야 합니다.
+
+## 2.2 Metal 빌드
+
+```sh
+cargo build -p zorogravity-core --release --no-default-features --features metal --example decide_probe
+ZOROGRAVITY_DEVICE=metal target/release/examples/decide_probe
+```
+
+`run/macos/metal.command` 가 같은 일을 하고, 맥의 앱(`run/macos/app.command`)도 Metal 로 돕니다.
+
+- 포크의 Metal 백엔드를 그대로 씁니다. `candle-metal-kernels` 는 logis-center 에서 검증한 0.11.0 으로 `Cargo.lock` 에 고정했습니다.
+- **Apple Silicon 전용입니다.** `candle-metal-kernels` 의 행렬곱은 `simdgroup_matrix` 와 SIMD 폭 32 를 전제로 합니다. `macos-15-intel` 러너(Apple Paravirtualized Graphics, Metal 2)에서는 복사 · 전치 · 평균은 맞지만 행렬곱, softmax, silu, rms_norm, Q8_0 곱이 **오류 없이 틀린 값**을 냈습니다 (상대오차 0.9 이상). 그래서 `open_metal` 이 장치를 열 때 행렬곱 · softmax · silu 를 CPU 와 비교하고, 틀리면 Metal 을 없는 장치로 봅니다. `auto` 는 다음 후보로 넘어가고 `metal` 을 직접 고르면 오류입니다. 실제 Intel 맥의 AMD GPU 로는 재 보지 않았습니다.
+- **dtype**: Vulkan · CUDA 와 같이 F32 입니다. 비전 타워의 BF16 가중치는 올릴 때 F32 로 풉니다.
+- **메모리**: 통합 메모리라서 포크는 `recommendedMaxWorkingSetSize − currentAllocatedSize` 를 여유로 돌려줍니다. Metal 은 다 쓴 작업 버퍼를 동기화할 때 돌려주므로 `Residency` 는 올리기 전에 동기화합니다. 그러지 않으면 올리는 동안 돌아온 버퍼 때문에 여유가 덜 줄어든 것처럼 보여서 `WeightsLeftOnHost` 로 잘못 거부합니다. `device_loading_is_measured_and_releasing_returns_the_memory` 가 이 경우를 재현합니다.
+- **장치가 없는 맥**: GPU 없는 가상 맥에서 포크의 `Device::new_metal` 은 오류 대신 패닉합니다. `open_metal` 이 이를 장치 없음으로 바꿔서 `auto` 는 다음 후보로 넘어갑니다.
+- **양자화 곱**: 기본 곱은 가중치만 풀고 활성값은 줄이지 않습니다. 정확한 곱과 1.6e-4 안에서 같아서 `forward_exact` 를 쓰지 않습니다.
+- **KV FP8**: 포크에 Metal 용 TurboQuant 커널이 없어서 같은 형식을 CPU 코덱으로 압축합니다 (3.7절). 값은 같고 느립니다. 기본 `auto` 는 메모리가 모자랄 때만 압축합니다.
+- **자기 추측**: 재 본 적이 없어서 끕니다 (`speculation_for`). `ZOROGRAVITY_ZORO_SPECULATION` 으로 켤 수 있습니다.
+
+**CI 측정** (`mac-metal`. 가상 M1, 메모리 7 GB, 합성 모델). CPU · 스칼라 기준과의 상대오차입니다.
+
+| 항목 | 상대오차 |
+| --- | --- |
+| 행렬곱 · softmax · silu · rms_norm | 6.4e-8 이하 |
+| Q8_0 기본 곱 (여러 행 · 한 행) | 1.6e-4 · 1.1e-7 |
+| gocr 비전 · 언어 | 3.0e-7 · 2.6e-7 |
+| KV FP8 압축 행 어텐션 | 5.1e-7 |
+| zoro 순전파 · 이어 읽기 · 글쓰기, siglip2 타워 | 시험 기준 안 (1e-3, q8 은 3%, 글쓰기 토큰은 CPU 와 같음) |
+
+128 MiB 묶음 두 개를 올리고 내린 뒤 여유 메모리는 4777 MB 로 그대로 돌아왔습니다.
+
+**미검증**: 실제 모델과 실제 맥 GPU 로는 돌려 보지 않았습니다. 판단 · 읽기 수치와 속도는 없고, 자동화 기준 0.95 도 Metal 에서 다시 재야 합니다.
 
 ## 3. 실측 (RX 6600)
 
@@ -146,7 +179,7 @@ zoro 32층 순전파 하나의 시간입니다 (층마다 기다려서 재서 �
 
 ### 3.7 KV 캐시 FP8
 
-**ROCm · Vulkan · CUDA 모두 가능합니다.** 포크가 세 백엔드 모두에 FP8 압축 · 복원 · 압축 행 어텐션 커널(`tq_quantize` · `tq_dequantize` · `tq_attention`)을 갖고 있습니다 (Vulkan 은 GLSL 포팅). `ai::kv_turbo` 가 logis-center 의 `kv_turbo.rs` · `accel_check.rs` 와 같은 정책으로 씁니다. 스케일 없는 `to_dtype(F8E4M3)` 캐스팅은 쓰지 않습니다. 448 을 넘으면 포화하고 작은 값은 사라지기 때문입니다.
+**ROCm · Vulkan · CUDA 모두 가능합니다.** 포크가 세 백엔드 모두에 FP8 압축 · 복원 · 압축 행 어텐션 커널(`tq_quantize` · `tq_dequantize` · `tq_attention`)을 갖고 있습니다 (Vulkan 은 GLSL 포팅). Metal 에는 이 커널이 없어서 포크의 CPU 코덱으로 압축합니다. `ai::kv_turbo` 가 logis-center 의 `kv_turbo.rs` · `accel_check.rs` 와 같은 정책으로 씁니다. 스케일 없는 `to_dtype(F8E4M3)` 캐스팅은 쓰지 않습니다. 448 을 넘으면 포화하고 작은 값은 사라지기 때문입니다.
 
 | `ZOROGRAVITY_KV_PRECISION` | 동작 |
 | --- | --- |
@@ -162,7 +195,7 @@ zoro 32층 순전파 하나의 시간입니다 (층마다 기다려서 재서 �
 
 **FP8 은 근사입니다.** logis-center 측정에서 짧은 JSON 추출은 원본과 다음 토큰이 100% 같았지만 수천 토큰의 긴 서술에서는 4% 안팎의 스텝에서 1순위 토큰이 바뀌었습니다. 그래서 기본은 메모리가 모자랄 때만 압축합니다. 압축 중에는 추측의 양에 따라 글이 달라질 수 있고(읽는 묶음에 따라 새 토큰이 원본이거나 FP8 입니다), 공문서 초안의 재현성이 중요하면 `exact` 를 쓰세요.
 
-**미검증**: CPU 코덱으로 단위 테스트만 했습니다. 실제 GPU · 실제 모델의 속도, 메모리, 오차, 글 변화는 재지 않았습니다. Vulkan 은 일반 텐서가 시스템 메모리에 있어서 `auto` 가 보는 장치 여유와 KV 가 실제로 쓰는 메모리가 다릅니다 (3.4절).
+**미검증**: CPU 코덱 단위 테스트와, CI 의 lavapipe(소프트웨어 Vulkan)에서 합성 입력으로 한 장치 시험만 통과했습니다. 실제 GPU · 실제 모델의 속도, 메모리, 오차, 글 변화는 재지 않았습니다. Vulkan 은 일반 텐서가 시스템 메모리에 있어서 `auto` 가 보는 장치 여유와 KV 가 실제로 쓰는 메모리가 다릅니다 (3.4절).
 
 ## 4. 알려진 문제
 
@@ -198,8 +231,8 @@ zorogravity 는 포크를 고치지 않고 올리기 전후의 장치 여유 메
 
 | 변수 | 기본값 | 뜻 |
 | --- | --- | --- |
-| `ZOROGRAVITY_DEVICE` | `auto` | `auto` · `cuda` · `rocm` · `vulkan` · `cpu` |
-| `ZOROGRAVITY_GPU` | 자동 | GPU 번호. 없으면 CUDA · ROCm 은 여유 VRAM 이 가장 많은 GPU, Vulkan 은 0번 (logis-center 와 같음) |
+| `ZOROGRAVITY_DEVICE` | `auto` | `auto` · `cuda` · `rocm` · `metal` · `vulkan` · `cpu` |
+| `ZOROGRAVITY_GPU` | 자동 | GPU 번호. 없으면 CUDA · ROCm 은 여유 VRAM 이 가장 많은 GPU, Metal · Vulkan 은 0번 (logis-center 와 같음) |
 | `ZOROGRAVITY_ACCEL_CHECK` | 켜짐 | `off` 이면 커널 자가 검증을 건너뜁니다 (진단용으로만) |
 | `CANDLE_VULKAN_NATIVE` | 자동 (독립 GPU 는 꺼짐) | `1` 이면 Vulkan 네이티브 element-wise · softmax · reduce 커널을 강제로 씁니다 |
 | `CANDLE_VULKAN_DEBUG` | 꺼짐 | `1` 이면 커널이 CPU 로 되돌아간 이유를 출력합니다 |

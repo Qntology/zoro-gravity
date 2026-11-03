@@ -25,6 +25,7 @@ out/
 Thumbs.db
 .DS_Store
 
-# ROCm · CUDA 빌드는 기본 빌드 캐시와 섞이지 않게 별도 폴더를 씁니다
+# ROCm · CUDA · Metal 빌드는 기본 빌드 캐시와 섞이지 않게 별도 폴더를 씁니다
 /target-rocm/
 /target-cuda/
+/target-metal/

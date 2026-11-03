@@ -1,0 +1,286 @@
+# Linux · macOS · Windows 에서 같은 코드를 검증합니다. 구조는 logis-center 의 cross-verify 와 같습니다 (docs/ci.md).
+#
+# GitHub 호스팅 러너에는 AMD · NVIDIA GPU 가 없어서 실제로 돌릴 수 있는 것만 돌립니다.
+#   mac (macos-15, 가상 M1) : cpu · metal · vulkan(MoltenVK). 호스팅 러너의 Metal 은 진짜 Metal 장치입니다
+#   mac-intel              : Intel 맥. Metal 코드를 빌드해 시험하고, 커널이 틀리는 이 GPU 의 Metal 을 쓰지 않는지 확인합니다
+#   cpu                    : 빌드 + --ignored 가 아닌 시험 전체
+#   vulkan (Linux)         : lavapipe(CPU 위의 소프트웨어 Vulkan)로 시험 전체 + 장치 시험
+#   vulkan (Windows)       : 빌드만. 소프트웨어 Vulkan 드라이버가 없어서 시험은 돌리지 않습니다
+#   cuda · rocm            : 타입 검사만 (cargo check). 실행하지 않으며 실행 통과로 치지 않습니다
+#   frontend               : tsc + vite 빌드
+# 장치 시험(`device_`)은 합성 모델을 그 장치에서 돌려 CPU · 스칼라 기준과 비교합니다. 실제 모델이 필요한 --ignored 시험은 돌리지 않습니다.
+name: cross-verify
+
+on:
+  # 모든 브랜치의 푸시마다 전체를 돌립니다. 머리 커밋 메시지의 `[skip ci]` 는 건너뛰고, 메시지에 한 줄로 쓴
+  # `[targets: mac-metal,linux-cpu]` 는 그 작업만 돌립니다. workflow_dispatch 도 같은 목록을 받습니다.
+  push:
+    branches: ["**"]
+  # PR 은 포크에서 Qntology main 으로 옵니다. 같은 저장소의 브랜치는 푸시에서 이미 돌았으므로 plan 이 건너뜁니다.
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: "쉼표 목록: mac-cpu, mac-metal, mac-vulkan, mac-intel, linux-cpu, linux-vulkan, linux-cuda, linux-rocm, windows-cpu, windows-vulkan, windows-cuda, windows-rocm, frontend (all = 전부)"
+        default: "all"
+
+concurrency:
+  group: cross-verify-${{ github.ref }}
+  # 브랜치의 새 푸시는 이전 실행을 끝냅니다. main 은 합쳐진 커밋마다 끝까지 돌립니다.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+env:
+  # 모든 OS · 모든 실행이 같은 컴파일러를 쓰게 고정합니다. 올릴 때는 여기만 바꾸면 캐시 키도 따라갑니다.
+  RUST_VERSION: "1.99.0"
+  CARGO_TERM_COLOR: never
+  CARGO_INCREMENTAL: "0"
+  # 디버그 정보를 빼야 러너 디스크와 캐시에 들어갑니다.
+  CARGO_PROFILE_DEV_DEBUG: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  plan:
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.m.outputs.matrix }}
+      cross: ${{ steps.m.outputs.cross }}
+      frontend: ${{ steps.m.outputs.frontend }}
+    steps:
+      - id: m
+        shell: bash
+        env:
+          TARGETS: ${{ inputs.targets || '' }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          # 스크립트의 표준 출력은 GITHUB_OUTPUT, 표준 오류는 사람이 읽을 한 줄입니다.
+          python3 - > "$RUNNER_TEMP/plan.out" 2> "$RUNNER_TEMP/plan.err" <<'PY' || { echo "::error title=plan::$(cat "$RUNNER_TEMP/plan.err")"; exit 1; }
+          import json, os, re, sys
+          t = os.environ.get("TARGETS", "").strip()
+          if not t:
+              # `[targets: ...]` 만 있는 줄만 셉니다. 설명 중에 언급한 것으로 골라지면 안 됩니다. 여러 줄이면 마지막 줄입니다.
+              found = re.findall(r"(?m)^[ \t]*\[targets:[ \t]*([^\]\n]+)\][ \t]*$", os.environ.get("COMMIT_MSG", ""))
+              t = found[-1] if found else "all"
+          t = t.replace(" ", "")
+          want = None if t == "all" else set(t.split(","))
+          inc = [
+            dict(name="mac-cpu", os="macos-15", kind="run", features=""),
+            dict(name="mac-metal", os="macos-15", kind="run", features="metal", device="metal"),
+            dict(name="mac-vulkan", os="macos-15", kind="run", features="vulkan", device="vulkan"),
+            # arm64 러너는 모자라서 배정되지 않을 때가 있습니다. Intel 러너는 그때도 Metal 코드를 빌드하고 시험 전체를 돌립니다.
+            # Intel 의 Metal 은 열리지만 커널이 틀린 값을 냅니다. 그 Metal 을 쓰지 않는 것까지 확인합니다.
+            dict(name="mac-intel", os="macos-15-intel", kind="run", features="metal", refuses_metal=True),
+            dict(name="linux-cpu", os="ubuntu-latest", kind="run", features=""),
+            dict(name="linux-vulkan", os="ubuntu-latest", kind="run", features="vulkan", device="vulkan"),
+            dict(name="linux-cuda", os="ubuntu-latest", kind="cuda-check", features="cuda"),
+            dict(name="linux-rocm", os="ubuntu-latest", kind="check", features="rocm"),
+            dict(name="windows-cpu", os="windows-latest", kind="run", features=""),
+            dict(name="windows-vulkan", os="windows-latest", kind="build", features="vulkan"),
+            # CUDA 13 + VS 2026. sm_80: candle-kernels 의 __hmax_nan · __hmin_nan 정의가 sm_75 이하에서 CUDA 13 헤더와 겹칩니다 (logis-center 와 같음).
+            dict(name="windows-cuda", os="windows-latest", kind="cuda-check", features="cuda", cuda="13.2.0", cuda_cap="80"),
+            dict(name="windows-rocm", os="windows-latest", kind="check", features="rocm"),
+          ]
+          valid = {i["name"] for i in inc} | {"frontend"}
+          unknown = (want or set()) - valid
+          if unknown:
+              print("unknown targets: " + ",".join(sorted(unknown)) + "  (valid: " + ",".join(sorted(valid)) + ")", file=sys.stderr)
+              sys.exit(1)
+          inc = [i for i in inc if want is None or i["name"] in want]
+          frontend = want is None or "frontend" in want
+          print("targets: " + ",".join([i["name"] for i in inc] + (["frontend"] if frontend else [])), file=sys.stderr)
+          print("matrix=" + json.dumps({"include": inc}))
+          print("cross=" + ("true" if inc else "false"))
+          print("frontend=" + ("true" if frontend else "false"))
+          PY
+          cat "$RUNNER_TEMP/plan.out" >> "$GITHUB_OUTPUT"
+          echo "::notice title=targets::$(cat "$RUNNER_TEMP/plan.err")"
+
+  frontend:
+    needs: plan
+    if: needs.plan.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+      - name: 타입 검사 + 빌드 (tsc, vite)
+        run: npm run build
+
+  cross:
+    needs: plan
+    if: needs.plan.outputs.cross == 'true'
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      # rocm: 러너에 hipcc 가 없습니다. 빌드 스크립트가 빈 커널 이미지를 씁니다.
+      CANDLE_ROCM_SKIP_KERNEL_BUILD: "1"
+      # cuda: GPU 가 없어서 아키텍처를 작업마다 정합니다 (sm_80, Ampere).
+      CUDA_COMPUTE_CAP: ${{ matrix.cuda_cap || '80' }}
+      # 앱은 시험이 없고 webkit · dist 가 필요해서 따로 빌드합니다. 모델 다운로드는 앱만 켜는 기능이라 시험에서는 직접 켭니다.
+      TEST_ARGS: --locked --workspace --exclude zorogravity-app --no-default-features --features zorogravity-models/download${{ matrix.features && format(',{0}', matrix.features) || '' }}
+      APP_ARGS: --locked -p zorogravity-app --no-default-features${{ matrix.features && format(' --features {0}', matrix.features) || '' }}
+    steps:
+      - uses: actions/checkout@v6
+        with: { path: zoro-gravity }
+      - name: 러너 환경 (설정 전)
+        run: bash zoro-gravity/.github/scripts/env-report.sh before-setup
+      - name: rhwp 는 필요한 경로만 받아 path 의존성으로 (이 작업 안에서만)
+        run: bash zoro-gravity/.github/scripts/use-rhwp-path.sh
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+      # 여기서 복원하고 맨 끝에서 저장합니다. 합친 actions/cache 는 성공한 작업만 저장해서 계속 실패하는 작업이 매번 처음부터 빌드합니다.
+      - id: cache
+        uses: actions/cache/restore@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            zoro-gravity/target
+          key: cross-${{ matrix.name }}-${{ matrix.os }}-rust${{ env.RUST_VERSION }}-${{ hashFiles('zoro-gravity/Cargo.lock') }}
+          restore-keys: cross-${{ matrix.name }}-${{ matrix.os }}-rust${{ env.RUST_VERSION }}-
+      - name: Tauri 시스템 라이브러리 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq build-essential pkg-config libssl-dev libgtk-3-dev libwebkit2gtk-4.1-dev \
+            libjavascriptcoregtk-4.1-dev libsoup-3.0-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev
+      - name: tauri::generate_context! 가 읽는 dist (프론트엔드 자체는 frontend 작업이 빌드합니다)
+        working-directory: zoro-gravity/app
+        run: mkdir -p dist && echo '<html></html>' > dist/index.html
+      - name: MoltenVK
+        if: matrix.name == 'mac-vulkan'
+        run: |
+          brew install molten-vk vulkan-loader vulkan-tools >/dev/null 2>&1 || brew install molten-vk vulkan-loader vulkan-tools
+          echo "VK_ICD_FILENAMES=$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json" >> "$GITHUB_ENV"
+      - name: 소프트웨어 Vulkan (lavapipe)
+        if: matrix.name == 'linux-vulkan'
+        run: |
+          sudo apt-get install -y -qq mesa-vulkan-drivers libvulkan1 vulkan-tools
+          icd="$(ls /usr/share/vulkan/icd.d/lvp_icd*.json | head -1)"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+          echo "CANDLE_VULKAN_ALLOW_CPU=1" >> "$GITHUB_ENV"
+      - name: CUDA Toolkit (apt 의 nvcc, GPU 없음)
+        if: matrix.name == 'linux-cuda'
+        run: sudo apt-get install -y -qq nvidia-cuda-toolkit
+      - name: CUDA Toolkit 13 (Windows)
+        if: matrix.kind == 'cuda-check' && runner.os == 'Windows'
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: ${{ matrix.cuda }}
+          method: network
+      - name: CUDA 13 헤더는 표준 전처리기가 필요합니다 (scripts/cuda-env.bat 과 같음)
+        if: startsWith(matrix.cuda, '13.')
+        run: echo "NVCC_PREPEND_FLAGS=-Xcompiler /Zc:preprocessor" >> "$GITHUB_ENV"
+      - name: MSVC 개발자 환경 (nvcc 가 cl.exe 를 부릅니다)
+        if: matrix.kind == 'cuda-check' && runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with: { arch: x64 }
+      - name: Git for Windows 의 link.exe 가 MSVC 의 link.exe 를 가립니다
+        if: matrix.kind == 'cuda-check' && runner.os == 'Windows'
+        run: |
+          if [ -f /usr/bin/link.exe ]; then mv /usr/bin/link.exe /usr/bin/link_git.exe; fi
+          where.exe link
+      - name: NVCC_CCBIN 을 PATH 의 cl.exe 로
+        if: matrix.kind == 'cuda-check' && runner.os == 'Windows'
+        run: echo "NVCC_CCBIN=$(where.exe cl | head -1 | tr -d '\r')" >> "$GITHUB_ENV"
+      - name: 러너 환경 (빌드 전)
+        run: bash zoro-gravity/.github/scripts/env-report.sh before-build
+
+      # ── run · build ──
+      - name: 빌드 (cargo test --no-run)
+        if: matrix.kind == 'run' || matrix.kind == 'build'
+        working-directory: zoro-gravity
+        run: |
+          . .github/scripts/annot.sh; set +e
+          cargo test $TEST_ARGS --no-run 2>&1 | tee "$RUNNER_TEMP/build.log" | tail -3
+          rc=${PIPESTATUS[0]}; [ "$rc" = 0 ] || { annot "$RUNNER_TEMP/build.log"; exit 1; }
+      - name: 시험 전체 (--ignored 제외)
+        if: matrix.kind == 'run'
+        working-directory: zoro-gravity
+        run: |
+          . .github/scripts/annot.sh; set +e
+          cargo test $TEST_ARGS 2>&1 | tee "$RUNNER_TEMP/suite.log" | tail -5
+          rc=${PIPESTATUS[0]}; [ "$rc" = 0 ] || { annot "$RUNNER_TEMP/suite.log"; exit 1; }
+          notice_lines "suite result" "$RUNNER_TEMP/suite.log" '^test result'
+      - name: 장치 시험 (합성 모델을 이 장치에서)
+        if: matrix.device
+        working-directory: zoro-gravity
+        env:
+          ZOROGRAVITY_DEVICE: ${{ matrix.device }}
+          # 장치 시험 수. 시험을 더하면 같이 올립니다.
+          DEVICE_CHECKS: "7"
+        run: |
+          . .github/scripts/annot.sh; set +e
+          cargo test $TEST_ARGS --lib -- device_ --ignored --nocapture --test-threads 1 2>&1 | tee "$RUNNER_TEMP/device.log" | tail -5
+          rc=${PIPESTATUS[0]}; [ "$rc" = 0 ] || { annot "$RUNNER_TEMP/device.log"; exit 1; }
+          # --nocapture 에서는 시험의 출력이 `test 이름 ... ` 뒤에 이어 붙으므로 줄 맨 앞으로 찾지 않습니다.
+          n="$(grep -c '\[DEVICE-CHECK\]' "$RUNNER_TEMP/device.log")"
+          if [ "$n" != "$DEVICE_CHECKS" ]; then
+            echo "::error title=device::장치 시험 ${DEVICE_CHECKS}개 중 ${n}개만 돌았습니다. 건너뛴 시험은 통과가 아닙니다"; exit 1
+          fi
+          notice_lines "device (${{ matrix.device }})" "$RUNNER_TEMP/device.log" '\[DEVICE-CHECK\]|\[DEVICE-OP\]|\[ZOROGRAVITY-ACCEL\] .*(통과|❌)'
+      - name: 커널이 틀리는 Metal 을 쓰지 않는지
+        if: matrix.refuses_metal
+        working-directory: zoro-gravity
+        run: |
+          . .github/scripts/annot.sh; set +e
+          cargo test $TEST_ARGS --lib -- metal_is_refused --ignored --nocapture --test-threads 1 2>&1 | tee "$RUNNER_TEMP/refuse.log" | tail -5
+          rc=${PIPESTATUS[0]}; [ "$rc" = 0 ] || { annot "$RUNNER_TEMP/refuse.log"; exit 1; }
+          grep -q '\[DEVICE-CHECK\]' "$RUNNER_TEMP/refuse.log" || { echo "::error title=device::거부 시험이 돌지 않았습니다"; exit 1; }
+          notice_lines "metal refused" "$RUNNER_TEMP/refuse.log" '\[DEVICE-CHECK\]|\[ZOROGRAVITY-ACCEL\]'
+      - name: 앱 빌드
+        if: matrix.kind == 'run' || matrix.kind == 'build'
+        working-directory: zoro-gravity
+        run: |
+          . .github/scripts/annot.sh; set +e
+          cargo build $APP_ARGS 2>&1 | tee "$RUNNER_TEMP/app.log" | tail -3
+          rc=${PIPESTATUS[0]}; [ "$rc" = 0 ] || { annot "$RUNNER_TEMP/app.log"; exit 1; }
+
+      # ── check · cuda-check: 타입 검사만 ──
+      - name: 타입 검사 (cargo check, 실행하지 않습니다)
+        if: matrix.kind == 'check' || matrix.kind == 'cuda-check'
+        working-directory: zoro-gravity
+        run: |
+          . .github/scripts/annot.sh; set +e
+          cargo check --locked --workspace --all-targets --no-default-features --features "${{ matrix.features }}" 2>&1 | tee "$RUNNER_TEMP/check.log" | tail -3
+          rc=${PIPESTATUS[0]}; [ "$rc" = 0 ] || { annot "$RUNNER_TEMP/check.log"; exit 1; }
+
+      - name: 빌드 캐시 저장 (실패해도, 같은 키가 없을 때만)
+        if: always() && steps.cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            zoro-gravity/target
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      # 건너뛴 단계는 통과가 아닙니다. 이 작업이 무엇을 확인했는지 그대로 적습니다.
+      - name: 이 작업의 범위
+        if: always()
+        run: |
+          case "${{ matrix.kind }}" in
+            run)        msg="빌드 + 시험 전체 + 앱 빌드${{ matrix.device && format(' + {0} 장치 시험', matrix.device) || '' }}${{ matrix.refuses_metal && ' + 틀린 Metal 거부' || '' }}. 돌리지 않음: 실제 모델 시험, CUDA · ROCm 실행" ;;
+            build)      msg="빌드 + 앱 빌드만. 돌리지 않음: 시험 (이 러너에 소프트웨어 Vulkan 드라이버가 없습니다)" ;;
+            check)      msg="타입 검사만 (cargo check). 돌리지 않음: 링크, 모든 시험 (GPU · SDK 없음)" ;;
+            cuda-check) msg="타입 검사 + 실제 nvcc 커널 빌드 (CUDA ${{ matrix.cuda || 'apt' }}, sm_${{ matrix.cuda_cap || '80' }}). 돌리지 않음: 모든 시험, GPU 위의 커널 (NVIDIA GPU 없음)" ;;
+          esac
+          echo "::notice title=scope ${{ matrix.name }}::$msg"

@@ -765,6 +765,7 @@ pub fn rows_to_host(hidden: &Tensor, rows: &[usize]) -> Result<Vec<Vec<f32>>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::accel;
     use crate::ai::residency::{Action, Residency};
     use crate::ai::weights::testing::{write_gguf, TempDir};
     use crate::ai::zoro::reference::MiniZoro;
@@ -1118,6 +1119,45 @@ mod tests {
         assert!(!got.tokens.is_empty());
         assert!(got.confidences.iter().all(|c| (0.0..=1.0).contains(c)));
         assert_eq!(got.tokens.len(), got.confidences.len());
+    }
+
+    /// 합성 모델을 GPU 에서 돌려 스칼라 기준 구현 · CPU 결과와 맞춰 봅니다. 프리필, 이어 읽기, 글쓰기, 양자화 파일을 모두 지납니다.
+    #[test]
+    #[ignore = "GPU 가 필요합니다"]
+    fn device_text_matches_the_scalar_reference() {
+        let device = accel::test_gpu();
+        let res = Residency::shared(device.clone(), Budget::unlimited());
+        let dir = TempDir::new("zm-gpu");
+        let (mini, m) = model(&dir, false, StreamMode::Resident, res.clone());
+        let want = mini.forward(&IDS);
+        let whole = rel(&run(&m, &IDS), &want);
+        assert!(whole < 1e-3, "한 번에 읽은 결과의 상대오차 {whole}");
+
+        let w = weights(&m, &res);
+        let mut state = m.new_state();
+        let mut parts = Vec::new();
+        let mut at = 0;
+        for n in [5usize, 1, 1, 3, 1] {
+            parts.push(m.advance(&w[0], &w[1], &device, &mut state, &IDS[at..at + n]).unwrap());
+            at += n;
+        }
+        let got = Tensor::cat(&parts.iter().collect::<Vec<_>>(), 0).unwrap().flatten_all().unwrap().to_vec1::<f32>().unwrap();
+        let pieces = rel(&got, &want);
+        assert!(pieces < 1e-3, "이어 읽은 결과의 상대오차 {pieces}");
+        drop(w);
+
+        let cpu_dir = TempDir::new("zm-gpu-cpu");
+        let (_, on_cpu) = model(&cpu_dir, false, StreamMode::Resident, cpu_residency());
+        let opts = GenerateOptions::new(6, vec![]);
+        let tokens = m.generate(&IDS[..4], &opts).unwrap().tokens;
+        assert_eq!(tokens, on_cpu.generate(&IDS[..4], &opts).unwrap().tokens, "CPU 와 같은 글을 써야 합니다");
+
+        let dir = TempDir::new("zm-gpu-q8");
+        let mini = MiniZoro::with_gain(0.3);
+        let m = ZoroModel::new(mini.write(&dir, true).unwrap(), res, StreamMode::Resident).unwrap();
+        let quant = rel(&run(&m, &IDS), &mini.forward(&IDS));
+        assert!(quant < 0.03, "q8 파일의 상대오차 {quant}");
+        println!("[DEVICE-CHECK] {} zoro: 순전파 {whole:.1e}, 이어 읽기 {pieces:.1e}, q8 {quant:.1e}, 글쓰기 {} 토큰", accel::backend_name(&device), tokens.len());
     }
 
     #[test]

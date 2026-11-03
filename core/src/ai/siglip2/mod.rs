@@ -197,6 +197,7 @@ impl Siglip2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::accel;
     use crate::ai::residency::{Action, Budget, TEXT_TOKEN_TABLE};
     use crate::ai::verify::det_normal;
     use crate::ai::weights::testing::{write_gguf, TempDir};
@@ -285,6 +286,10 @@ mod tests {
 
     /// `mmproj` 를 주면 비전 타워는 그 파일에 있는 모델입니다.
     fn fixture_with(dir: &TempDir, list: Vec<(String, Tensor, GgmlDType)>, mmproj: Option<Arc<WeightFile>>) -> (Siglip2, SharedResidency) {
+        fixture_on(dir, list, mmproj, &Device::Cpu)
+    }
+
+    fn fixture_on(dir: &TempDir, list: Vec<(String, Tensor, GgmlDType)>, mmproj: Option<Arc<WeightFile>>, device: &Device) -> (Siglip2, SharedResidency) {
         let path = dir.0.join("siglip2.gguf");
         let tower = |k: &str, v: u32| (k.to_string(), Value::U32(v));
         let meta: Vec<(String, Value)> = [
@@ -309,7 +314,7 @@ mod tests {
         let wl = WordLevel::builder().vocab(vocab).unk_token("<unk>".into()).build().unwrap();
         let mut tk = Tokenizer::new(wl);
         tk.with_pre_tokenizer(Some(tokenizers::pre_tokenizers::whitespace::Whitespace {}));
-        let residency = Residency::shared(Device::Cpu, Budget::unlimited());
+        let residency = Residency::shared(device.clone(), Budget::unlimited());
         let spec = ModelSpec::new(ModelId::Siglip2, file);
         let spec = match mmproj {
             Some(mmproj) => spec.with_mmproj(mmproj),
@@ -395,6 +400,25 @@ mod tests {
         for (i, (x, y)) in a.iter().zip(b).enumerate() {
             assert!((x - y).abs() < tol, "{what} [{i}]: {x} != {y}");
         }
+    }
+
+    #[test]
+    #[ignore = "GPU 가 필요합니다"]
+    fn device_towers_match_the_cpu() -> Result<()> {
+        let device = accel::test_gpu();
+        let (gpu_dir, cpu_dir) = (TempDir::new("siglip2-gpu"), TempDir::new("siglip2-cpu"));
+        let (on_gpu, _) = fixture_on(&gpu_dir, tensor_list(), None, &device);
+        let (on_cpu, _) = fixture(&cpu_dir);
+        let (img, phrases) = (input(), vec!["a b".to_string(), "b".to_string()]);
+        let (a, b) = (on_gpu.encode_images(std::slice::from_ref(&img))?, on_cpu.encode_images(std::slice::from_ref(&img))?);
+        close(&a[0].patches, &b[0].patches, 1e-3, "패치");
+        close(&a[0].pooled, &b[0].pooled, 1e-3, "풀링");
+        let (x, y) = (on_gpu.encode_phrases(&phrases)?, on_cpu.encode_phrases(&phrases)?);
+        for (p, q) in x.iter().zip(&y) {
+            close(p, q, 1e-3, "문구");
+        }
+        println!("[DEVICE-CHECK] {} siglip2: 비전 · 텍스트 타워가 CPU 와 1e-3 안에서 일치", accel::backend_name(&device));
+        Ok(())
     }
 
     #[test]

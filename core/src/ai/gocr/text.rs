@@ -178,6 +178,7 @@ impl Decoder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai::accel;
     use crate::ai::attention::attend;
     use crate::ai::residency::{Budget, Group, ModelId, ModelSpec, Phase, Residency};
     use crate::ai::verify::{det_normal, rel_err};
@@ -250,10 +251,15 @@ mod tests {
         cfg: GocrConfig,
         blocks: std::sync::Arc<Loaded>,
         output: std::sync::Arc<Loaded>,
+        device: Device,
         _dir: TempDir,
     }
 
     fn mini() -> Mini {
+        mini_on(&Device::Cpu)
+    }
+
+    fn mini_on(device: &Device) -> Mini {
         let cfg = GocrConfig {
             n_layers: 2,
             hidden: 16,
@@ -305,11 +311,11 @@ mod tests {
         write_gguf(&path, &[("general.architecture", Value::String("gocr".into()))], &t).unwrap();
         let file = Arc::new(WeightFile::open(&path).unwrap());
         let spec = ModelSpec::new(ModelId::Gocr, file);
-        let mut res = Residency::new(Device::Cpu, Budget::unlimited());
+        let mut res = Residency::new(device.clone(), Budget::unlimited());
         let mut h = res.enter(&spec, &Phase::new("언어", [Group::blocks(0..cfg.n_layers), Group::Output])).unwrap();
         let output = h.pop().unwrap();
         let blocks = h.pop().unwrap();
-        Mini { cfg, blocks, output, _dir: dir }
+        Mini { cfg, blocks, output, device: device.clone(), _dir: dir }
     }
 
     impl Mini {
@@ -318,7 +324,7 @@ mod tests {
         }
 
         fn embed(&self, n: usize, seed: u64) -> Tensor {
-            Tensor::from_vec(det_normal(n * self.cfg.hidden, seed), (n, self.cfg.hidden), &Device::Cpu).unwrap()
+            Tensor::from_vec(det_normal(n * self.cfg.hidden, seed), (n, self.cfg.hidden), &self.device).unwrap()
         }
     }
 
@@ -352,6 +358,32 @@ mod tests {
         let refs: Vec<&Tensor> = got.iter().collect();
         let err = rel_err(&Tensor::cat(&refs, 0)?, &whole)?;
         assert!(err < 1e-4, "{err}");
+        Ok(())
+    }
+
+    /// 프리필 뒤에 한 토큰씩 읽은 로짓이 GPU 와 CPU 에서 같아야 합니다.
+    #[test]
+    #[ignore = "GPU 가 필요합니다"]
+    fn device_decoder_matches_the_cpu() -> Result<()> {
+        let read = |m: &Mini| -> Result<Tensor> {
+            let dec = m.dec();
+            let x = m.embed(12, 5);
+            let mut cache = KvCache::new(m.cfg.n_layers);
+            let (_, kv) = dec.forward(&cache, &x.narrow(0, 0, 9)?.contiguous()?, &positions(0, 9), AttnMode::Causal)?;
+            cache.commit(&kv, 9)?;
+            let mut h = None;
+            for at in 9..12 {
+                let (y, kv) = dec.forward(&cache, &x.narrow(0, at, 1)?.contiguous()?, &positions(at, 1), AttnMode::Causal)?;
+                cache.commit(&kv, 1)?;
+                h = Some(y);
+            }
+            let logits = dec.last_logits(&h.expect("마지막 은닉 상태"))?;
+            Ok(Tensor::from_vec(logits, m.cfg.vocab, &Device::Cpu)?)
+        };
+        let device = accel::test_gpu();
+        let err = rel_err(&read(&mini_on(&device))?, &read(&mini())?)?;
+        assert!(err < 1e-3, "{err}");
+        println!("[DEVICE-CHECK] {} gocr 언어: CPU 대비 상대오차 {err:.1e}", accel::backend_name(&device));
         Ok(())
     }
 
